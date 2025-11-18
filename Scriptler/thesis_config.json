@@ -1,0 +1,15 @@
+{
+  "{{PROJECT_TITLE}}": "AI Destekli Çok Platformlu Ürün Değerlendirme Asistanı",
+  "{{PROJECT_TITLE_EN}}": "AI-Assisted Multi-Platform Product Review Advisor",
+  "{{STUDENT_NAME}}": "Melih Divan",
+  "{{STUDENT_NUMBER}}": "221401020",
+  "{{ADVISOR}}": "Dr. Öğr. Üyesi Uğur Çoruh",
+  "{{DEPARTMENT}}": "Bilgisayar Mühendisliği",
+  "{{UNIVERSITY}}": "Recep Tayyip Erdoğan Üniversitesi",
+  "{{ACADEMIC_YEAR}}": "2025-2026",
+  "{{PROJECT_SUMMARY_TR}}": "Kullanıcı bir ürün adı veya e-ticaret bağlantısı girer. Sistem birden çok platformdan yorumları toplayıp (offline demo’da örnek veri), Türkçe odaklı kurala dayalı analiz ile kronik sorunları, övgüleri ve şikayetleri oranlarıyla özetler.",
+  "{{PROJECT_SUMMARY_EN}}": "The system ingests product reviews from multiple platforms (offline demo uses sample data) and summarizes chronic issues, praises, and complaints in Turkish with aspect ratios.",
+  "{{KEYWORDS_TR}}": "Yorum Analizi, Duygu Analizi, Ürün Tavsiyesi, Çok Platform, Türkçe",
+  "{{KEYWORDS_EN}}": "Review Mining, Sentiment Analysis, Product Recommendation, Multi-platform, Turkish"
+}
+
