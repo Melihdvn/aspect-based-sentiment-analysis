@@ -77,7 +77,7 @@ export async function ingestTrendyol({ query, maxItems = 200 }) {
   try {
     const html = await fetchHtml(url);
     const reviews = extractReviewsFromHtml(html, maxItems);
-    console.log(reviews);
+    //console.log(reviews);
     return { reviews, sources: ['trendyol'] };
   } catch (err) {
     return { reviews: [], sources: ['trendyol:error', String(err?.message || err)] };

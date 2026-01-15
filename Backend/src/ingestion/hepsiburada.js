@@ -89,12 +89,37 @@ export async function ingestHepsiburada({ query, maxItems = 200 }) {
     return { reviews: [], sources: ['hepsiburada:unresolved'] };
   }
   // Ürün sayfası URL'sini yorum sayfası URL'sine dönüştür
-  const url = buildReviewsUrl(query) || query;
+  const baseUrl = buildReviewsUrl(query) || query;
+  const allReviews = [];
+  const maxPages = 7; // En fazla 7 sayfa çek (10 yorum/sayfa = ~70 yorum)
+  
   try {
-    const html = await fetchHtml(url);
-    const reviews = extractReviewsFromHtml(html, maxItems);
-    return { reviews, sources: ['hepsiburada'] };
+    for (let page = 1; page <= maxPages && allReviews.length < maxItems; page++) {
+      // Sayfa numarası ekle
+      const pageUrl = page === 1 ? baseUrl : `${baseUrl}?sayfa=${page}`;
+      
+      try {
+        const html = await fetchHtml(pageUrl);
+        const reviews = extractReviewsFromHtml(html, maxItems - allReviews.length);
+        
+        // Yeni yorum yoksa dur
+        if (reviews.length === 0) break;
+        
+        allReviews.push(...reviews);
+        
+        // Kısa bekleme - rate limiting için
+        if (page < maxPages && allReviews.length < maxItems) {
+          await new Promise(r => setTimeout(r, 300));
+        }
+      } catch (pageErr) {
+        // Sayfa hatası olursa devam et
+        console.warn(`Hepsiburada sayfa ${page} hatası:`, pageErr.message);
+        break;
+      }
+    }
+    
+    return { reviews: allReviews, sources: ['hepsiburada'] };
   } catch (err) {
-    return { reviews: [], sources: ['hepsiburada:error', String(err?.message || err)] };
+    return { reviews: allReviews, sources: ['hepsiburada:error', String(err?.message || err)] };
   }
 }
