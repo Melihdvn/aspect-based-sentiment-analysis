@@ -9,6 +9,30 @@ function looksLikeHepsiburada(query) {
   return q.includes('hepsiburada.');
 }
 
+// Ürün sayfası URL'sinden yorum sayfası URL'si oluştur
+function buildReviewsUrl(productUrl) {
+  if (!productUrl || !looksLikeHepsiburada(productUrl)) return null;
+  try {
+    const url = new URL(productUrl);
+    // Zaten -yorumlari ile bitiyorsa değiştirme
+    if (url.pathname.endsWith('-yorumlari')) return productUrl;
+    // Query string ve hash'i temizle
+    url.search = '';
+    url.hash = '';
+    // Sonunda / varsa kaldır
+    if (url.pathname.endsWith('/')) {
+      url.pathname = url.pathname.slice(0, -1);
+    }
+    url.pathname = url.pathname + '-yorumlari';
+    return url.toString();
+  } catch {
+    // URL parse edilemezse basit string ekleme yap
+    const cleanUrl = productUrl.split('?')[0].split('#')[0];
+    if (cleanUrl.endsWith('-yorumlari')) return cleanUrl;
+    return cleanUrl.endsWith('/') ? cleanUrl.slice(0, -1) + '-yorumlari' : cleanUrl + '-yorumlari';
+  }
+}
+
 function extractReviewsFromHtml(html, maxItems) {
   const reviews = [];
   // JSON-LD reviewBody
@@ -64,7 +88,8 @@ export async function ingestHepsiburada({ query, maxItems = 200 }) {
   if (!looksLikeHepsiburada(query)) {
     return { reviews: [], sources: ['hepsiburada:unresolved'] };
   }
-  const url = query;
+  // Ürün sayfası URL'sini yorum sayfası URL'sine dönüştür
+  const url = buildReviewsUrl(query) || query;
   try {
     const html = await fetchHtml(url);
     const reviews = extractReviewsFromHtml(html, maxItems);

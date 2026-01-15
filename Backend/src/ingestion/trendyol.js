@@ -9,6 +9,30 @@ function looksLikeTrendyol(query) {
   return q.includes('trendyol.');
 }
 
+// Ürün sayfası URL'sinden yorum sayfası URL'si oluştur
+function buildReviewsUrl(productUrl) {
+  if (!productUrl || !looksLikeTrendyol(productUrl)) return null;
+  try {
+    const url = new URL(productUrl);
+    // Zaten /yorumlar ile bitiyorsa değiştirme
+    if (url.pathname.endsWith('/yorumlar')) return productUrl;
+    // Query string ve hash'i temizle, /yorumlar ekle
+    url.search = '';
+    url.hash = '';
+    // Sonunda / varsa kaldır
+    if (url.pathname.endsWith('/')) {
+      url.pathname = url.pathname.slice(0, -1);
+    }
+    url.pathname = url.pathname + '/yorumlar';
+    return url.toString();
+  } catch {
+    // URL parse edilemezse basit string ekleme yap
+    const cleanUrl = productUrl.split('?')[0].split('#')[0];
+    if (cleanUrl.endsWith('/yorumlar')) return cleanUrl;
+    return cleanUrl.endsWith('/') ? cleanUrl + 'yorumlar' : cleanUrl + '/yorumlar';
+  }
+}
+
 function extractReviewsFromHtml(html, maxItems) {
   const reviews = [];
   const inlineComment = new RegExp('\\"comment\\"\s*:\s*\\"([^\\"]{3,300})\\"', 'g');
@@ -48,7 +72,8 @@ export async function ingestTrendyol({ query, maxItems = 200 }) {
   if (!looksLikeTrendyol(query)) {
     return { reviews: [], sources: ['trendyol:unresolved'] };
   }
-  const url = query;
+  // Ürün sayfası URL'sini yorum sayfası URL'sine dönüştür
+  const url = buildReviewsUrl(query) || query;
   try {
     const html = await fetchHtml(url);
     const reviews = extractReviewsFromHtml(html, maxItems);
