@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { ingestFromQuery } from '../ingestion/index.js';
 import { analyzeWithGemini } from './llm.js';
 import { preprocessReviews } from './nlpClient.js';
+import { prisma } from './db.js';
 
 // Aspect keywords (TR) — extendable
 const aspects = {
@@ -94,6 +95,43 @@ async function readSample({ maxItems }) {
 }
 
 export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
+  // Check if analysis already exists in the database
+  try {
+    const existing = await prisma.productAnalysis.findUnique({
+      where: { query },
+      include: { aspectStats: true, highlights: true }
+    });
+
+    if (existing) {
+      console.log(`[Cache Hit] Returning DB record for query: ${query}`);
+      return {
+        query: existing.query,
+        sources: ['database'],
+        total_reviews: existing.totalReviews,
+        analyzed_reviews: existing.analyzedReviews,
+        aspect_stats: existing.aspectStats.map(a => ({
+          aspect: a.aspect,
+          count: a.count,
+          ratio: a.ratio,
+          positive: a.positive,
+          negative: a.negative,
+          pos_ratio: a.posRatio,
+          neg_ratio: a.negRatio,
+          examplesPos: a.examplesPos,
+          examplesNeg: a.examplesNeg,
+          summary: a.summary
+        })),
+        highlights: {
+          issues: existing.highlights.filter(h => h.type === 'issue').map(h => ({ name: h.name, reason: h.reason })),
+          praises: existing.highlights.filter(h => h.type === 'praise').map(h => ({ name: h.name, reason: h.reason }))
+        },
+        summary: existing.summary
+      };
+    }
+  } catch (err) {
+    console.error('[DB Read Error] Continuing without cache.', err?.message || err);
+  }
+
   let reviews = [];
   let sources = [];
 
@@ -144,7 +182,7 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
       const praises = aspect_stats.filter(a => a.positive >= a.negative).slice(0,5)
         .map(a => ({ aspect: a.aspect, ratio: a.ratio, example: a.examplesPos?.[0] || null }));
 
-      return {
+      const finalResult = {
         query,
         sources,
         total_reviews: reviews.length,
@@ -153,6 +191,42 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
         highlights: llm.highlights || { issues, praises },
         summary: llm.summary || (`"${query}" için ${reviews.length} yorumdan özet üretildi.`)
       };
+
+      try {
+        await prisma.productAnalysis.create({
+          data: {
+            query,
+            totalReviews: finalResult.total_reviews,
+            analyzedReviews: finalResult.analyzed_reviews,
+            summary: finalResult.summary,
+            aspectStats: {
+              create: aspect_stats.map(a => ({
+                aspect: a.aspect,
+                count: a.count,
+                ratio: a.ratio,
+                positive: a.positive,
+                negative: a.negative,
+                posRatio: a.pos_ratio,
+                negRatio: a.neg_ratio,
+                summary: a.summary,
+                examplesPos: a.examplesPos || [],
+                examplesNeg: a.examplesNeg || []
+              }))
+            },
+            highlights: {
+              create: [
+                ...finalResult.highlights.issues.map(i => ({ type: 'issue', name: i.name || 'Bilinmiyor', reason: i.reason || '' })),
+                ...finalResult.highlights.praises.map(p => ({ type: 'praise', name: p.name || 'Bilinmiyor', reason: p.reason || '' }))
+              ]
+            }
+          }
+        });
+        console.log(`[DB Insert] Saved analysis for query: ${query}`);
+      } catch (dbErr) {
+        console.error('[DB Insert Error] Could not save analysis to DB:', dbErr?.message || dbErr);
+      }
+
+      return finalResult;
     } catch (e) {
       throw new Error('LLM analizi başarısız: ' + (e?.message || e));
     }

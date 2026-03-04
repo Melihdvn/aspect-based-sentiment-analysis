@@ -43,9 +43,12 @@ export async function analyzeWithGemini({ query, reviews, apiKey, model = 'gemin
     `Filtreleme: 5 kelimeden kısa ve içeriksiz yorumları at; tekrarları kullanma.\n\n` +
     `Çıktı şeması (yalnızca geçerli JSON, eksik parantez veya virgül olmamasına ÇOK DİKKAT ET):\n` +
     `{\n  "aspects": [\n    {\n      "name": "batarya",\n      "positive_count": 0,\n      "negative_count": 0,\n` +
-    `      "summary_tr": "Bu aspect için tek cümlelik özet.",\n` +
+    `      "summary_tr": "Kullanıcılar bataryanın .... olduğunu belirtmiş...",\n` +
     `      "positive_examples": [],\n      "negative_examples": []\n    }\n  ],\n  "highlights": {\n    "issues": [\n      {"name": "...", "reason": "kısa gerekçe (ürüne dair)"}\n    ],\n    "praises": [\n      {"name": "...", "reason": "kısa gerekçe (ürüne dair)"}\n    ]\n  },\n  "summary_tr": "Ürün için kısa ve net sonuç."\n}\n\n` +
-    `\nKurallar (özetleme):\n- Her aspect için summary_tr alanına 1 cümlelik, anlaşılır, alıntısız ve sadece o aspekte odaklı bir özet yaz.\n- Başka kullanıcı yorumlarını direkt kopyalama; yeniden yaz ve birleştir.\n- Maksimum 180 karakter.\n\n` +
+    `\nÖNEMLİ KURALLAR:\n` +
+    `- "summary_tr" alanını yazarken robotik bir dil değil, doğal ve kapsayıcı bir dil kullan ("... belirtilmiştir", "... vurgulanmıştır" yerine, "Ekranın çok net ve parlak olduğunu söylüyorlar" gibi sıcak ve analiz odaklı yaz).\n` +
+    `- **DİKKAT:** Bir özellikle (aspect) ilgili HİÇ yorum yoksa (positive_count=0 ve negative_count=0 ise), o özelliği JSON'a KESİNLİKLE EKLEME (örn: 'depolama' hakkında yorum yoksa JSON'da 'depolama' objesi olmasın).\n` +
+    `- Yalnızca kullanıcıların gerçekten bahsettiği konulardan bahset.\n\n` +
     `Ürün: ${query}\n` +
     `Yorumlar:\n${joined}\n`
   );

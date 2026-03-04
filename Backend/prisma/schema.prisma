@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ProductAnalysis {
+  id               String       @id @default(uuid())
+  query            String       @unique // The search query used (e.g., product name or URL)
+  totalReviews     Int
+  analyzedReviews  Int
+  summary          String       @db.Text
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  aspectStats      AspectStat[]
+  highlights       Highlight[]
+  reviews          Review[]
+}
+
+model AspectStat {
+  id                String          @id @default(uuid())
+  aspect            String
+  count             Int
+  ratio             Float
+  positive          Int
+  negative          Int
+  posRatio          Float
+  negRatio          Float
+  summary           String          @db.Text
+  examplesPos       String[]
+  examplesNeg       String[]
+  
+  productAnalysisId String
+  productAnalysis   ProductAnalysis @relation(fields: [productAnalysisId], references: [id], onDelete: Cascade)
+}
+
+model Highlight {
+  id                String          @id @default(uuid())
+  type              String          // "issue" or "praise"
+  name              String
+  reason            String          @db.Text
+  
+  productAnalysisId String
+  productAnalysis   ProductAnalysis @relation(fields: [productAnalysisId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id                String          @id @default(uuid())
+  originalText      String          @db.Text
+  cleanedText       String?         @db.Text
+  source            String?
+  
+  productAnalysisId String
+  productAnalysis   ProductAnalysis @relation(fields: [productAnalysisId], references: [id], onDelete: Cascade)
+}
