@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { ingestFromQuery } from '../ingestion/index.js';
 import { analyzeWithGemini } from './llm.js';
+import { preprocessReviews } from './nlpClient.js';
 
 // Aspect keywords (TR) — extendable
 const aspects = {
@@ -102,6 +103,17 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
   sources = ingested.sources || ['live'];
   if (!reviews.length) {
     throw new Error('Hiç yorum getirilemedi. ENABLE_LIVE=1 ile başlatın veya /analyze/raw ile veri sağlayın.');
+  }
+
+  // Preprocess with Python NLP API
+  try {
+    const processed = await preprocessReviews(reviews);
+    if (processed && processed.length > 0) {
+      console.log(`Original: ${reviews.length}, Processed Unique: ${processed.length}`);
+      reviews = processed;
+    }
+  } catch (err) {
+    console.warn("Python NLP processing failed, continuing with raw reviews.", err.message);
   }
 
   // If LLM requested and key exists, try LLM pathway first
@@ -221,6 +233,17 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
 }
 
 export async function analyzeProvidedReviews({ query, reviews = [], useLLM = true }) {
+  // Preprocess with Python NLP API
+  try {
+    const processed = await preprocessReviews(reviews);
+    if (processed && processed.length > 0) {
+      console.log(`Original API items: ${reviews.length}, Processed Unique: ${processed.length}`);
+      reviews = processed;
+    }
+  } catch (err) {
+    console.warn("Python NLP processing failed, continuing with raw reviews.", err.message);
+  }
+
   const wantLLM = true; // LLM zorunlu
   const haveKey = !!process.env.GOOGLE_API_KEY;
 

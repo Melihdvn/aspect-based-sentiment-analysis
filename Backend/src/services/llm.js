@@ -41,10 +41,10 @@ export async function analyzeWithGemini({ query, reviews, apiKey, model = 'gemin
     `  • "Depolama 128GB bana yetti, iCloud ile sorun yok." → depolama: pozitif\n` +
     `  • "Batarya çabuk bitiyor demek doğru değil, bana bir gün yetiyor." → batarya: pozitif\n\n` +
     `Filtreleme: 5 kelimeden kısa ve içeriksiz yorumları at; tekrarları kullanma.\n\n` +
-    `Çıktı şeması (yalnızca geçerli JSON):\n` +
-    `{\n  "aspects": [\n    {"name": "batarya", "positive_count": 0, "negative_count": 0,` +
-    ` "summary_tr": "Bu aspect için tek cümlelik özet.",` +
-    ` "positive_examples": [], "negative_examples": []}\n  ],\n  "highlights": {\n    "issues": [{"name": "...", "reason": "kısa gerekçe (ürüne dair)"}],\n    "praises": [{"name": "...", "reason": "kısa gerekçe (ürüne dair)"}]\n  },\n  "summary_tr": "Ürün için kısa ve net sonuç."\n}` +
+    `Çıktı şeması (yalnızca geçerli JSON, eksik parantez veya virgül olmamasına ÇOK DİKKAT ET):\n` +
+    `{\n  "aspects": [\n    {\n      "name": "batarya",\n      "positive_count": 0,\n      "negative_count": 0,\n` +
+    `      "summary_tr": "Bu aspect için tek cümlelik özet.",\n` +
+    `      "positive_examples": [],\n      "negative_examples": []\n    }\n  ],\n  "highlights": {\n    "issues": [\n      {"name": "...", "reason": "kısa gerekçe (ürüne dair)"}\n    ],\n    "praises": [\n      {"name": "...", "reason": "kısa gerekçe (ürüne dair)"}\n    ]\n  },\n  "summary_tr": "Ürün için kısa ve net sonuç."\n}\n\n` +
     `\nKurallar (özetleme):\n- Her aspect için summary_tr alanına 1 cümlelik, anlaşılır, alıntısız ve sadece o aspekte odaklı bir özet yaz.\n- Başka kullanıcı yorumlarını direkt kopyalama; yeniden yaz ve birleştir.\n- Maksimum 180 karakter.\n\n` +
     `Ürün: ${query}\n` +
     `Yorumlar:\n${joined}\n`
