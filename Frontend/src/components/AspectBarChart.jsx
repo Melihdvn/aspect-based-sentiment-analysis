@@ -1,36 +1,89 @@
-import React from 'react'
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts'
-import { Typography } from 'antd'
+import React from 'react';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell, Legend } from 'recharts';
+import { Typography, Row, Col, Badge } from 'antd';
 
-const { Text } = Typography
+const { Text } = Typography;
 
-const palette = ['#1677ff', '#52c41a', '#faad14', '#13c2c2', '#722ed1', '#eb2f96', '#fa541c', '#2f54eb']
+// Modern, vibrant color palette
+const palette = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#10b981', '#06b6d4', '#3b82f6'];
 
-function CustomTooltip({ active, payload, label }){
+function CustomTooltip({ active, payload, label }) {
   if (active && payload && payload.length) {
-    const p = payload[0]?.payload || {}
+    const p = payload[0]?.payload || {};
     return (
-      <div style={{ background:'#fff', border:'1px solid #eee', padding:12, borderRadius:8, maxWidth:320 }}>
-        <div style={{ fontWeight:600, marginBottom:6 }}>{label} — {p.ratio}%</div>
-        <div style={{ fontSize:12, color:'#667085' }}>Olumlu: {p.positive} · Olumsuz: {p.negative}</div>
-        {p.summary && (<div style={{ marginTop:8 }}><Text type="secondary">{p.summary}</Text></div>)}
+      <div style={{
+        background: 'rgba(255, 255, 255, 0.95)',
+        border: '1px solid #e2e8f0',
+        padding: '16px',
+        borderRadius: '12px',
+        maxWidth: '320px',
+        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+        backdropFilter: 'blur(8px)'
+      }}>
+        <div style={{ fontWeight: 700, fontSize: '16px', color: '#1e293b', marginBottom: '8px', textTransform: 'uppercase' }}>
+          {label}
+        </div>
+        <Row justify="space-between" style={{ marginBottom: '8px' }}>
+          <Text type="secondary" style={{ fontSize: '13px' }}>Genel Memnuniyet (Oran)</Text>
+          <Text strong style={{ color: p.ratio > 50 ? '#10b981' : (p.ratio < 30 ? '#ef4444' : '#f59e0b') }}>{p.ratio}%</Text>
+        </Row>
+        <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '13px' }}>
+          <div><Badge color="green" text={`Pozitif: ${p.positive}`} /></div>
+          <div><Badge color="red" text={`Negatif: ${p.negative}`} /></div>
+        </div>
+        {p.summary && (
+          <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed #cbd5e1' }}>
+            <Text type="secondary" style={{ fontSize: '13px', lineHeight: '1.5' }}>{p.summary}</Text>
+          </div>
+        )}
       </div>
-    )
+    );
   }
-  return null
+  return null;
 }
 
-export default function AspectBarChart({ data = [] }){
-  const chartData = data.map((d, i) => ({ name: d.aspect, ratio: d.ratio, positive: d.positive, negative: d.negative, summary: d.summary }))
+export default function AspectBarChart({ data = [] }) {
+  // Sort data by ratio to show the most discussed/highly rated first, or just keep as is
+  const chartData = [...data].sort((a, b) => b.count - a.count).map(d => ({
+    name: d.aspect,
+    ratio: Math.round(d.ratio),
+    positive: d.positive,
+    negative: d.negative,
+    summary: d.summary,
+    count: d.count
+  }));
+
   return (
-    <div style={{ width:'100%', height: 320 }}>
+    <div style={{ width: '100%', height: '100%', minHeight: '380px' }}>
       <ResponsiveContainer>
-        <BarChart data={chartData} margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-          <YAxis unit="%" />
-          <Tooltip content={<CustomTooltip />} />
-          <Bar dataKey="ratio" name="Oran (%)">
+        <BarChart
+          data={chartData}
+          margin={{ top: 20, right: 20, bottom: 40, left: 0 }}
+          barSize={40}
+        >
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis
+            dataKey="name"
+            tick={{ fill: '#64748b', fontSize: 13, fontWeight: 500 }}
+            tickMargin={12}
+            axisLine={{ stroke: '#cbd5e1' }}
+            tickLine={false}
+          />
+          <YAxis
+            unit="%"
+            tick={{ fill: '#64748b', fontSize: 13 }}
+            axisLine={false}
+            tickLine={false}
+            tickMargin={8}
+          />
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(226, 232, 240, 0.4)' }} />
+          <Bar
+            dataKey="ratio"
+            name="Bahsedilme Oranı"
+            radius={[6, 6, 0, 0]}
+            animationDuration={1500}
+            animationEasing="ease-out"
+          >
             {chartData.map((entry, idx) => (
               <Cell key={`cell-${idx}`} fill={palette[idx % palette.length]} />
             ))}
@@ -38,5 +91,5 @@ export default function AspectBarChart({ data = [] }){
         </BarChart>
       </ResponsiveContainer>
     </div>
-  )
+  );
 }
