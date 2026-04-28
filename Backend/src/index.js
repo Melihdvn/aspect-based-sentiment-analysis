@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import * as dotenv from 'dotenv';
+dotenv.config({ override: true });
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
@@ -30,7 +31,7 @@ app.post('/analyze', async (req, res) => {
     const result = await analyzeQuery({ query, maxItems: max_items, useLLM: true });
     res.json(result);
   } catch (err) {
-    console.error(err);
+    console.error('[Analyze Error]', err);
     res.status(500).json({ error: 'Analiz sırasında hata oluştu.', detail: String(err?.message || err) });
   }
 });

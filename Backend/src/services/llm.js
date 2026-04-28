@@ -21,37 +21,80 @@ export async function analyzeWithGemini({ query, reviews, apiKey, model = 'gemin
   const maxReviews = Number(process.env.GEMINI_MAX_REVIEWS || 120);
   const maxChars = Number(process.env.GEMINI_MAX_CHARS || 280);
   const maxN = Math.min(maxReviews, reviews.length);
+
+  // Her yorumu platform etiketiyle formatla
   const joined = reviews
     .slice(0, maxN)
-    .map((r) => `- ${r.text?.toString().replace(/\s+/g, ' ').slice(0, maxChars)}`)
+    .map((r) => {
+      const platformTag = r.platform ? `[${r.platform}] ` : '';
+      return `- ${platformTag}${r.text?.toString().replace(/\s+/g, ' ').slice(0, maxChars)}`;
+    })
     .join('\n');
+
+  // Hangi platformlardan yorum geldiğini tespit et
+  const platformsInData = [...new Set(reviews.slice(0, maxN).map(r => r.platform).filter(Boolean))];
+  const platformInfo = platformsInData.length > 0
+    ? `Bu yorumlar şu platformlardan toplandı: ${platformsInData.join(', ')}. Her yorumun başında platform etiketi ([amazon], [trendyol], [hepsiburada]) bulunmaktadır.\n`
+    : '';
+
+  // JSON şemasını ayrı bir string olarak oluştur (escape sorunlarını önlemek için)
+  const jsonSchema = JSON.stringify({
+    aspects: [
+      {
+        name: "batarya",
+        positive_count: 0,
+        negative_count: 0,
+        summary_tr: "Kullanıcılar bataryanın .... olduğunu belirtmiş...",
+        positive_examples: [],
+        negative_examples: []
+      }
+    ],
+    highlights: {
+      issues: [{ name: "...", reason: "kısa gerekçe (ürüne dair)" }],
+      praises: [{ name: "...", reason: "kısa gerekçe (ürüne dair)" }]
+    },
+    per_platform_summary: {
+      amazon: "Amazon kullanıcıları özellikle X konusunda olumlu/olumsuz...",
+      trendyol: "Trendyol kullanıcıları genel olarak...",
+      hepsiburada: "Hepsiburada kullanıcıları..."
+    },
+    summary_tr: "Ürün için kısa ve net sonuç."
+  }, null, 2);
+
   console.log("Prompt yollandı.");
-  const prompt = (
-    `Sen Türkçe ürün yorum analizi yapan bir yardımcı modelsin.\n` +
-    `Görevin: verilen yorumlardan 'ÜRÜNE AİT' boyutları (ör. batarya, ekran, kamera, performans, yazılım, ses, depolama, fiyat, servis) ve her boyut için olumlu/olumsuz sinyalleri çıkarmak; kronik sorunlar ve övgüleri oranlayıp kısa bir özet üretmek.\n` +
-    `SADECE nihai JSON çıktısını ver; açıklama/markdown/kod bloğu ekleme.\n\n` +
-    `Kapsam ve hariç tutma (çok önemli):\n` +
-    `- Yalnızca ürünle ilgili içerikleri değerlendir.\n` +
-    `- Şu dış etkenleri tamamen YOK SAY: satıcı/mağaza, kargo/teslimat/paketleme, web sitesi/uygulama deneyimi, idari iade/servis süreçleri.\n` +
-    `- Amaç ürün kararı; satın alınacak yeri değerlendirme.\n\n` +
-    `Negasyon ve kutupluluk:\n` +
-    `- “X değil”, “yeterli değil”, “sorun yok”, “problem yok”, “pişman değilim”, “kötü değil” → olumsuzluğu tersine çevir.\n` +
-    `- “X demek doğru değil” → X iddiasını reddeder (negatif değil, genelde olumlu/nötr).\n` +
-    `- Örnekler (negatif DEĞİL):\n` +
-    `  • "Depolama 128GB bana yetti, iCloud ile sorun yok." → depolama: pozitif\n` +
-    `  • "Batarya çabuk bitiyor demek doğru değil, bana bir gün yetiyor." → batarya: pozitif\n\n` +
-    `Filtreleme: 5 kelimeden kısa ve içeriksiz yorumları at; tekrarları kullanma.\n\n` +
-    `Çıktı şeması (yalnızca geçerli JSON, eksik parantez veya virgül olmamasına ÇOK DİKKAT ET):\n` +
-    `{\n  "aspects": [\n    {\n      "name": "batarya",\n      "positive_count": 0,\n      "negative_count": 0,\n` +
-    `      "summary_tr": "Kullanıcılar bataryanın .... olduğunu belirtmiş...",\n` +
-    `      "positive_examples": [],\n      "negative_examples": []\n    }\n  ],\n  "highlights": {\n    "issues": [\n      {"name": "...", "reason": "kısa gerekçe (ürüne dair)"}\n    ],\n    "praises": [\n      {"name": "...", "reason": "kısa gerekçe (ürüne dair)"}\n    ]\n  },\n  "summary_tr": "Ürün için kısa ve net sonuç."\n}\n\n` +
-    `\nÖNEMLİ KURALLAR:\n` +
-    `- "summary_tr" alanını yazarken robotik bir dil değil, doğal ve kapsayıcı bir dil kullan ("... belirtilmiştir", "... vurgulanmıştır" yerine, "Ekranın çok net ve parlak olduğunu söylüyorlar" gibi sıcak ve analiz odaklı yaz).\n` +
-    `- **DİKKAT:** Bir özellikle (aspect) ilgili HİÇ yorum yoksa (positive_count=0 ve negative_count=0 ise), o özelliği JSON'a KESİNLİKLE EKLEME (örn: 'depolama' hakkında yorum yoksa JSON'da 'depolama' objesi olmasın).\n` +
-    `- Yalnızca kullanıcıların gerçekten bahsettiği konulardan bahset.\n\n` +
-    `Ürün: ${query}\n` +
-    `Yorumlar:\n${joined}\n`
-  );
+  const prompt = [
+    `Sen Türkçe ürün yorum analizi yapan bir yardımcı modelsin.`,
+    `Görevin: verilen yorumlardan 'ÜRÜNE AİT' boyutları (ör. batarya, ekran, kamera, performans, yazılım, ses, depolama, fiyat, servis) ve her boyut için olumlu/olumsuz sinyalleri çıkarmak; kronik sorunlar ve övgüleri oranlayıp kısa bir özet üretmek.`,
+    `SADECE nihai JSON çıktısını ver; açıklama/markdown/kod bloğu ekleme.`,
+    ``,
+    platformInfo,
+    `Kapsam ve hariç tutma (çok önemli):`,
+    `- Yalnızca ürünle ilgili içerikleri değerlendir.`,
+    `- Şu dış etkenleri tamamen YOK SAY: satıcı/mağaza, kargo/teslimat/paketleme, web sitesi/uygulama deneyimi, idari iade/servis süreçleri.`,
+    `- Amaç ürün kararı; satın alınacak yeri değerlendirme.`,
+    ``,
+    `Negasyon ve kutupluluk:`,
+    `- "X değil", "yeterli değil", "sorun yok", "problem yok", "pişman değilim", "kötü değil" → olumsuzluğu tersine çevir.`,
+    `- "X demek doğru değil" → X iddiasını reddeder (negatif değil, genelde olumlu/nötr).`,
+    `- Örnekler (negatif DEĞİL):`,
+    `  • "Depolama 128GB bana yetti, iCloud ile sorun yok." → depolama: pozitif`,
+    `  • "Batarya çabuk bitiyor demek doğru değil, bana bir gün yetiyor." → batarya: pozitif`,
+    ``,
+    `Filtreleme: 5 kelimeden kısa ve içeriksiz yorumları at; tekrarları kullanma.`,
+    ``,
+    `Çıktı şeması (yalnızca geçerli JSON, eksik parantez veya virgül olmamasına ÇOK DİKKAT ET):`,
+    jsonSchema,
+    ``,
+    `ÖNEMLİ KURALLAR:`,
+    `- "summary_tr" alanını yazarken robotik bir dil değil, doğal ve kapsayıcı bir dil kullan.`,
+    `- "per_platform_summary" alanında yalnızca veride mevcut platformları yaz; veri yoksa o platformu ekleme.`,
+    `- **DİKKAT:** Bir özellikle (aspect) ilgili HİÇ yorum yoksa (positive_count=0 ve negative_count=0 ise), o özelliği JSON'a KESİNLİKLE EKLEME.`,
+    `- Yalnızca kullanıcıların gerçekten bahsettiği konulardan bahset.`,
+    ``,
+    `Ürün: ${query}`,
+    `Yorumlar:`,
+    joined
+  ].join('\n');
 
   const maxRetries = Number(process.env.LLM_RETRIES || 5);
   const baseDelay = Number(process.env.LLM_BACKOFF_MS || 800);
@@ -107,5 +150,6 @@ export async function analyzeWithGemini({ query, reviews, apiKey, model = 'gemin
     aspect_stats,
     highlights: data.highlights || { issues: [], praises: [] },
     summary: data.summary_tr || '',
+    per_platform_summary: data.per_platform_summary || {}
   };
 }

@@ -106,6 +106,8 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
       console.log(`[Cache Hit] Returning DB record for query: ${query}`);
       return {
         query: existing.query,
+        productTitle: existing.query,
+        perPlatform: {},
         sources: ['database'],
         total_reviews: existing.totalReviews,
         analyzed_reviews: existing.analyzedReviews,
@@ -125,6 +127,7 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
           issues: existing.highlights.filter(h => h.type === 'issue').map(h => ({ name: h.name, reason: h.reason })),
           praises: existing.highlights.filter(h => h.type === 'praise').map(h => ({ name: h.name, reason: h.reason }))
         },
+        per_platform_summary: {},
         summary: existing.summary
       };
     }
@@ -134,13 +137,24 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
 
   let reviews = [];
   let sources = [];
+  let productTitle = '';
+  let perPlatform = {};
 
   // Offline demo kapalı: her zaman canlı ingest dene
+  console.log(`[Analyzer] Ingesting reviews for query: "${query}"...`);
   const ingested = await ingestFromQuery({ query, maxItems });
+  
   reviews = ingested.reviews || [];
   sources = ingested.sources || ['live'];
+  productTitle = ingested.productTitle || query;
+  perPlatform = ingested.perPlatform || {};
+
+  console.log(`[Analyzer] Ingestion completed. Found ${reviews.length} reviews from sources: ${sources.join(', ')}`);
+  
   if (!reviews.length) {
-    throw new Error('Hiç yorum getirilemedi. ENABLE_LIVE=1 ile başlatın veya /analyze/raw ile veri sağlayın.');
+    const sourceErrors = sources.filter(s => s.includes(':error'));
+    const errorDetail = sourceErrors.length > 0 ? ` (Hatalar: ${sourceErrors.join(', ')})` : '';
+    throw new Error(`Ürün için hiç yorum toplanamadı. URL'nin doğruluğunu kontrol edin veya ürün adıyla tekrar deneyin.${errorDetail}`);
   }
 
   // Preprocess with Python NLP API
@@ -184,10 +198,13 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
 
       const finalResult = {
         query,
+        productTitle,
+        perPlatform,
         sources,
         total_reviews: reviews.length,
         analyzed_reviews: reviews.length,
         aspect_stats,
+        per_platform_summary: llm.per_platform_summary || {},
         highlights: llm.highlights || { issues, praises },
         summary: llm.summary || (`"${query}" için ${reviews.length} yorumdan özet üretildi.`)
       };

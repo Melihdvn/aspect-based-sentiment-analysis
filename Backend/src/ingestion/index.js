@@ -1,8 +1,9 @@
-import { ingestAmazon } from './amazon.js';
-import { ingestTrendyol } from './trendyol.js';
-import { ingestHepsiburada } from './hepsiburada.js';
-import { scrapeAllSites, scrapeAmazonUrl } from './search_playwright.js';
+import { extractTitleFromAmazon, extractTitleFromTrendyol, extractTitleFromHepsiburada, normalizeTitle } from './titleExtractor.js';
+import { withPage, scrapeAllSites } from './search_playwright.js';
+import { scrapeAkakceForLinks } from './akakce.js';
+import { scrapeCimriForLinks } from './cimri.js';
 
+// TIMESTAMP: 2026-04-28-14-58
 function normalizeText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
@@ -13,14 +14,24 @@ function dedupeAndCap(reviews, maxItems) {
   for (const r of reviews) {
     if (!r || !r.text) continue;
     const t = normalizeText(r.text);
-    if (!t || t.split(' ').length < 5) continue;
+    if (!t || t.split(' ').length < 3) continue;
     const key = t.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ text: t });
+    out.push({ text: t, platform: r.platform || undefined });
     if (out.length >= maxItems) break;
   }
   return out;
+}
+
+function computePerPlatform(reviews) {
+  const perPlatform = {};
+  for (const r of reviews) {
+    if (r.platform) {
+      perPlatform[r.platform] = (perPlatform[r.platform] || 0) + 1;
+    }
+  }
+  return perPlatform;
 }
 
 function detectSource(query) {
@@ -28,6 +39,9 @@ function detectSource(query) {
   if (q.includes('amazon.')) return 'amazon';
   if (q.includes('trendyol.')) return 'trendyol';
   if (q.includes('hepsiburada.')) return 'hepsiburada';
+  if (q.includes('n11.')) return 'n11';
+  if (q.includes('pazarama.')) return 'pazarama';
+  if (q.includes('ciceksepeti.')) return 'ciceksepeti';
   return 'unknown';
 }
 
@@ -35,28 +49,60 @@ const looksLikeUrl = (q) => /^https?:\/\//i.test(String(q || ''));
 
 export async function ingestFromQuery({ query, maxItems = 200 }) {
   if (process.env.ENABLE_LIVE !== '1') {
-    return { reviews: [], sources: ['live-disabled'] };
+    return { reviews: [], sources: ['live-disabled'], productTitle: '', perPlatform: {} };
   }
 
-  if (looksLikeUrl(query)) {
-    const source = detectSource(query);
-    try {
-      if (source === 'amazon') {
-        const live = await scrapeAmazonUrl(query, maxItems);
-        if (live?.reviews?.length) return live;
-        const fallback = await ingestAmazon({ query, maxItems });
-        if (fallback?.reviews?.length) return fallback;
-        return live;
-      }
-      if (source === 'trendyol') return ingestTrendyol({ query, maxItems });
-      if (source === 'hepsiburada') return ingestHepsiburada({ query, maxItems });
-      return { reviews: [], sources: ['unknown-source'] };
-    } catch (err) {
-      return { reviews: [], sources: [`${source}:error`, String(err?.message || err)] };
+  // URL'nin sonundaki enter veya görünmez karakterleri temizle
+  const searchInput = String(query || '').trim().replace(/[\u21B5\r\n\t]/g, '');
+  
+  let links = {};
+  let discoveredTitle = searchInput;
+
+// [Ingestion] URL algılandı
+  if (looksLikeUrl(searchInput)) {
+    const sourcePlatform = detectSource(searchInput);
+    
+    const extraction = await withPage(async (page) => {
+      await page.goto(searchInput, { waitUntil: 'domcontentloaded' });
+      let title = '';
+      if (sourcePlatform === 'amazon') title = await extractTitleFromAmazon(page, searchInput);
+      else if (sourcePlatform === 'trendyol') title = await extractTitleFromTrendyol(page, searchInput);
+      else if (sourcePlatform === 'hepsiburada') title = await extractTitleFromHepsiburada(page, searchInput);
+      else title = await page.title();
+      return { title };
+    }).catch(() => ({ title: '' }));
+
+    if (extraction.title) {
+      discoveredTitle = normalizeTitle(extraction.title);
+      if (sourcePlatform !== 'unknown') links[sourcePlatform] = searchInput;
     }
   }
 
-  const res = await scrapeAllSites({ query, maxItems });
+  // 2. Link Keşfi (Akakçe/Cimri)
+  try {
+    const akakceRes = await scrapeAkakceForLinks(discoveredTitle).catch(() => ({ links: {} }));
+    links = { ...akakceRes.links, ...links };
+    if (akakceRes.title && (discoveredTitle === searchInput || discoveredTitle.length < 5)) {
+      discoveredTitle = akakceRes.title;
+    }
+
+    if (Object.keys(links).length <= 1) {
+      const cimriRes = await scrapeCimriForLinks(discoveredTitle).catch(() => ({ links: {} }));
+      links = { ...cimriRes.links, ...links };
+      if (cimriRes.title && discoveredTitle === searchInput) discoveredTitle = cimriRes.title;
+    }
+  } catch (err) {
+    // Sessiz hata yönetimi
+  }
+
+  // 3. Çoklu Platform Kazıma
+  const res = await scrapeAllSites({ query: discoveredTitle, maxItems, links });
   const cleaned = dedupeAndCap(res.reviews || [], maxItems);
-  return { reviews: cleaned, sources: res.sources || [] };
+  
+  return {
+    reviews: cleaned,
+    sources: res.sources || [],
+    productTitle: discoveredTitle || searchInput,
+    perPlatform: computePerPlatform(cleaned)
+  };
 }
