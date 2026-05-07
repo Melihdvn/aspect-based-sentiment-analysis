@@ -1,11 +1,8 @@
 import React from 'react';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell, Legend } from 'recharts';
-import { Typography, Row, Col, Badge } from 'antd';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
+import { Typography, Row, Badge } from 'antd';
 
 const { Text } = Typography;
-
-// Modern, vibrant color palette
-const palette = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#10b981', '#06b6d4', '#3b82f6'];
 
 function CustomTooltip({ active, payload, label }) {
   if (active && payload && payload.length) {
@@ -28,8 +25,8 @@ function CustomTooltip({ active, payload, label }) {
           <Text strong style={{ color: p.ratio > 50 ? '#10b981' : (p.ratio < 30 ? '#ef4444' : '#f59e0b') }}>{p.ratio}%</Text>
         </Row>
         <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '13px' }}>
-          <div><Badge color="green" text={`Pozitif: ${p.positive}`} /></div>
-          <div><Badge color="red" text={`Negatif: ${p.negative}`} /></div>
+          <div><Badge color="#10b981" text={`Olumlu: ${p.positive}`} /></div>
+          <div><Badge color="#ef4444" text={`Olumsuz: ${p.negative}`} /></div>
         </div>
         {p.summary && (
           <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed #cbd5e1' }}>
@@ -43,7 +40,7 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function AspectBarChart({ data = [] }) {
-  // Sort data by ratio to show the most discussed/highly rated first, or just keep as is
+  // Sort data by total mentions (positive + negative) to show the most discussed first
   const chartData = [...data].sort((a, b) => b.count - a.count).map(d => ({
     name: d.aspect,
     ratio: Math.round(d.ratio),
@@ -70,24 +67,30 @@ export default function AspectBarChart({ data = [] }) {
             tickLine={false}
           />
           <YAxis
-            unit="%"
             tick={{ fill: '#64748b', fontSize: 13 }}
             axisLine={false}
             tickLine={false}
             tickMargin={8}
+            allowDecimals={false}
           />
           <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(226, 232, 240, 0.4)' }} />
+          <Legend wrapperStyle={{ paddingTop: '20px' }} />
           <Bar
-            dataKey="ratio"
-            name="Bahsedilme Oranı"
-            radius={[6, 6, 0, 0]}
+            dataKey="positive"
+            stackId="a"
+            name="Olumlu Yorumlar"
+            fill="#10b981"
             animationDuration={1500}
             animationEasing="ease-out"
-          >
-            {chartData.map((entry, idx) => (
-              <Cell key={`cell-${idx}`} fill={palette[idx % palette.length]} />
-            ))}
-          </Bar>
+          />
+          <Bar
+            dataKey="negative"
+            stackId="a"
+            name="Olumsuz Yorumlar"
+            fill="#ef4444"
+            animationDuration={1500}
+            animationEasing="ease-out"
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>
