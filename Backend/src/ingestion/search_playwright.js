@@ -9,7 +9,7 @@ import {
 const HEADLESS = process.env.PLAYWRIGHT_HEADLESS !== '0';
 const NAV_TIMEOUT = Number(process.env.SCRAPER_NAV_TIMEOUT_MS || 30000);
 const SCRAPE_TIMEOUT = Number(process.env.SCRAPER_TIMEOUT_MS || 30000);
-const MAX_SCROLL = Number(process.env.SCRAPER_SCROLL_STEPS || 15);
+const MAX_SCROLL = Number(process.env.SCRAPER_SCROLL_STEPS || 30);
 const UA = process.env.SCRAPER_UA || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 async function handleAmazonConsent(page) {
@@ -56,10 +56,25 @@ export async function withPage(fn) {
     }
   });
   const page = await context.newPage();
-  // Webdriver bypass
+  // Gelişmiş Stealth Evasions
   await page.addInitScript(() => {
+    // Webdriver maskeleme
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    // Chrome eklentileri varmış gibi davran
+    window.chrome = { runtime: {} };
+    // Plugin listesini doldur
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    // Diller
+    Object.defineProperty(navigator, 'languages', { get: () => ['tr-TR', 'tr', 'en-US', 'en'] });
+    // Permissions maskeleme
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) => (
+      parameters.name === 'notifications' ?
+        Promise.resolve({ state: Notification.permission }) :
+        originalQuery(parameters)
+    );
   });
+
   page.setDefaultNavigationTimeout(NAV_TIMEOUT);
   page.setDefaultTimeout(SCRAPE_TIMEOUT);
   try {
@@ -82,7 +97,7 @@ function dedupe(list, maxItems) {
   const out = [];
   for (const txt of list) {
     const t = cleanText(txt);
-    if (!t || t.split(' ').length < 3) continue; // min 3 kelime
+    if (!t || t.split(' ').length < 2) continue; // min 2 kelime
     const key = t.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -116,15 +131,15 @@ async function collectAmazonPageReviews(page, maxItems) {
     // 1. Regex ile kaynağı tara (En garantisi)
     const html = await page.content();
     const regexList = [
-      /"reviewBody"\s*:\s*"([^"]{15,2000})"/g,
-      /"comment"\s*:\s*"([^"]{15,2000})"/g,
-      /"text"\s*:\s*"([^"]{15,2000})"/g
+      /"reviewBody"\s*:\s*"([^"]{10,2500})"/g,
+      /"comment"\s*:\s*"([^"]{10,2500})"/g,
+      /"text"\s*:\s*"([^"]{10,2500})"/g
     ];
     
     regexList.forEach(reg => {
       let m; while ((m = reg.exec(html)) && collected.length < maxItems) {
         let txt = m[1].replace(/\\n/g, ' ').replace(/\\u[\dA-F]{4}/gi, (match) => String.fromCharCode(parseInt(match.replace(/\\u/g, ''), 16))).trim();
-        if (txt.length > 20) collected.push(txt);
+        if (txt.length > 10) collected.push(txt);
       }
     });
 
@@ -134,7 +149,7 @@ async function collectAmazonPageReviews(page, maxItems) {
       selList.forEach(sel => {
         document.querySelectorAll(sel).forEach(el => {
           const t = (el.innerText || el.textContent || '').trim();
-          if (t && t.length > 25) found.push(t);
+          if (t && t.length > 10) found.push(t);
         });
       });
       return found;
@@ -156,7 +171,15 @@ async function collectAmazonPageReviews(page, maxItems) {
 async function scrapeAmazon(query, maxItems) {
   return withPage(async (page) => {
     console.log(`[Amazon] Aranıyor: ${query}`);
-    await page.goto(`https://www.amazon.com.tr/s?k=${encodeURIComponent(query)}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`https://www.amazon.com.tr/s?k=${encodeURIComponent(query)}`, { waitUntil: 'load', timeout: 60000 });
+    await page.waitForTimeout(5000); // Cloudflare/Bot kontrolü için bekleme süresini artır
+    
+    const title = await page.title();
+    if (title.includes('Robot') || title.includes('CAPTCHA') || title.includes('Attention Required')) {
+      console.warn('[Amazon] Arama sayfasında bot korumasına yakalandı!');
+      return { reviews: [], sources: ['amazon:bot'] };
+    }
+
     const first = page.locator('[data-component-type="s-search-result"] h2 a, .s-result-item h2 a, a.a-link-normal.s-no-outline, .s-product-image-container a').first();
     if (await first.count() === 0) return { reviews: [], sources: ['amazon:none'] };
     const href = await first.getAttribute('href');
@@ -170,18 +193,20 @@ async function scrapeAmazonUrl(productUrl, maxItems) {
     if (!productUrl) return { reviews: [], sources: ['amazon:none'] };
     
     console.log(`[Amazon] Linke gidiliyor: ${productUrl}`);
-    await page.goto(productUrl, { waitUntil: 'domcontentloaded' }).catch(e => console.error(`[Amazon] Goto hatası: ${e.message}`));
+    await page.goto(productUrl, { waitUntil: 'load', timeout: 60000 }).catch(e => console.error(`[Amazon] Goto hatası: ${e.message}`));
     
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(5000);
     await handleAmazonConsent(page);
     
     if (productUrl.includes('akakce') || productUrl.includes('cimri')) {
-      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
+      console.log('[Amazon] Yönlendirme bekleniyor...');
+      await page.waitForNavigation({ waitUntil: 'load', timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(3000);
     }
     await handleAmazonConsent(page);
     
     const title = await page.title();
-    if (title.includes('Robot') || title.includes('CAPTCHA')) {
+    if (title.includes('Robot') || title.includes('CAPTCHA') || title.includes('Attention Required')) {
       console.warn('[Amazon] Bot korumasına yakalandı!');
       return { reviews: [], sources: ['amazon:bot'] };
     }
@@ -191,7 +216,7 @@ async function scrapeAmazonUrl(productUrl, maxItems) {
     const inlineReviews = await collectAmazonPageReviews(page, 10);
     
     // ADIM 2: Tüm yorumlar sayfasına gitmeye çalış (Bot koruması riski var)
-    const seeAll = page.locator('a[data-hook="see-all-reviews-link-foot"], a[href*="/product-reviews/"]');
+    const seeAll = page.locator('a[data-hook="see-all-reviews-link-foot"], a[href*="/product-reviews/"], a:has-text("Tüm yorumları gör")');
     if (await seeAll.count()) {
       console.log('[Amazon] "Tüm yorumları gör" sayfasına geçiş deneniyor...');
       try {
@@ -200,27 +225,69 @@ async function scrapeAmazonUrl(productUrl, maxItems) {
           seeAll.first().click()
         ]);
         
-        const fullReviews = await collectAmazonPageReviews(page, maxItems);
+        const fullReviews = [];
+        for (let p = 0; p < MAX_SCROLL && fullReviews.length < maxItems; p++) {
+          const pageReviews = await collectAmazonPageReviews(page, maxItems - fullReviews.length);
+          fullReviews.push(...pageReviews);
+          if (fullReviews.length >= maxItems) break;
+          
+          // Amazon numaralandırılmış sayfalar (Sonraki sayfa)
+          const nextBtn = page.locator('li.a-last a, ul.a-pagination li:last-child a');
+          if (await nextBtn.count() && await nextBtn.first().isVisible().catch(() => false)) {
+            console.log(`[Amazon] Sonraki yorum sayfasına geçiliyor...`);
+            await Promise.all([
+              page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {}),
+              nextBtn.first().click({ timeout: 3000 }).catch(() => {})
+            ]);
+            await page.waitForTimeout(2000);
+            
+            // Login duvarına çarptık mı?
+            if (page.url().includes('signin') || page.url().includes('login')) {
+               console.warn('[Amazon] Giriş yapma zorunluluğu nedeniyle sonraki sayfalar alınamadı.');
+               break;
+            }
+          } else {
+            break;
+          }
+        }
+        
         if (fullReviews.length > 0) {
-          console.log(`[Amazon] Tüm yorumlar sayfasından ${fullReviews.length} yorum toplandı.`);
+          console.log(`[Amazon] Toplam ${fullReviews.length} yorum toplandı.`);
           return { reviews: fullReviews, sources: ['amazon'] };
         }
       } catch (err) {
-        console.warn('[Amazon] Tüm yorumlar sayfasına gidilemedi veya yorum bulunamadı, ana sayfa verisi kullanılacak.');
+        console.warn('[Amazon] "Tüm yorumlar" sayfası hatası (Muhtemelen login zorunluluğu). Ana sayfa verisi kullanılacak.');
       }
     }
     
-    console.log(`[Amazon] Sadece ana sayfadan ${inlineReviews.length} yorum alındı.`);
-    return { reviews: inlineReviews, sources: ['amazon:inline'] };
+    // Eğer tüm yorumlar sayfasına gidilemediyse veya boşsa ana sayfadaki 10 yorumu dön
+    if (inlineReviews.length > 0) {
+      console.log(`[Amazon] Sadece ana sayfadan ${inlineReviews.length} yorum alındı.`);
+      return { reviews: inlineReviews, sources: ['amazon:inline'] };
+    }
   });
 }
 
 async function scrapeTrendyol(query, maxItems) {
   return withPage(async (page) => {
     console.log(`[Trendyol] Aranıyor: ${query}`);
-    await page.goto(`https://www.trendyol.com/sr?q=${encodeURIComponent(query)}`, { waitUntil: 'domcontentloaded' });
-    const first = page.locator('.p-card-wrppr a, .p-card-chldrn-cntnr a, [data-testid="product-card"] a, .card-item a, .product-card a').first();
-    if (await first.count() === 0) return { reviews: [], sources: ['trendyol:none'] };
+    await page.goto(`https://www.trendyol.com/sr?q=${encodeURIComponent(query)}`, { waitUntil: 'load', timeout: 60000 });
+    
+    // Cloudflare veya yüklenme için bekle
+    await page.waitForTimeout(5000);
+    await page.waitForSelector('.p-card-wrppr, [data-testid="product-card"], a[href*="-p-"]', { timeout: 10000 }).catch(() => {});
+
+    const title = await page.title();
+    if (title.includes('Attention Required') || title.includes('Robot') || title.includes('CAPTCHA')) {
+      console.warn('[Trendyol] Arama sayfasında bot korumasına yakalandı!');
+      return { reviews: [], sources: ['trendyol:bot'] };
+    }
+
+    const first = page.locator('.p-card-wrppr a, .p-card-chldrn-cntnr a, [data-testid="product-card"] a, .card-item a, .product-card a, a[href*="-p-"]').first();
+    if (await first.count() === 0) {
+      console.warn('[Trendyol] Ürün bulunamadı (Selector eşleşmedi).');
+      return { reviews: [], sources: ['trendyol:none'] };
+    }
     const href = await first.getAttribute('href');
     const productUrl = href ? new URL(href, 'https://www.trendyol.com').toString() : null;
     return scrapeTrendyolUrl(productUrl, maxItems);
@@ -233,7 +300,8 @@ async function scrapeTrendyolUrl(productUrl, maxItems) {
     if (!productUrl) return { reviews: [], sources: ['trendyol:none'] };
     
     console.log(`[Trendyol] Linke gidiliyor: ${productUrl}`);
-    await page.goto(productUrl, { waitUntil: 'domcontentloaded' });
+    await page.goto(productUrl, { waitUntil: 'load', timeout: 60000 });
+    await page.waitForTimeout(5000);
     
     // Eğer Akakçe/Cimri üzerinden gelmişsek yönlendirmeyi bekle
     if (productUrl.includes('akakce') || productUrl.includes('cimri')) {
@@ -267,10 +335,10 @@ async function scrapeTrendyolUrl(productUrl, maxItems) {
     
     for (let i = 0; i < MAX_SCROLL && collected.size < maxItems; i++) {
       const texts = await page.evaluate(() => {
-        const sel = '.review-comment, [class*="rnr-com-tx"], .comment-text, [class*="ReviewCard"] p, .rnr-com-w p';
+        const sel = '.review-comment, [class*="rnr-com-tx"], .comment-text, [class*="ReviewCard"] p, .rnr-com-w p, .comment-text span, .rnr-com-tx';
         return Array.from(document.querySelectorAll(sel))
           .map(el => el.innerText?.trim())
-          .filter(t => t && t.length > 15 && !t.includes('Değerlendirme') && !t.includes('Yorum'));
+          .filter(t => t && t.length > 10 && !t.includes('Değerlendirme') && !t.includes('Yorum'));
       }).catch(() => []);
       
       texts.forEach(t => collected.add(t));
@@ -286,7 +354,17 @@ async function scrapeTrendyolUrl(productUrl, maxItems) {
         }
       }
 
-      if (i > 3 && collected.size === prevSize) break;
+      if (i > 3 && collected.size === prevSize) {
+        // Scroll çalışmıyorsa numaralandırılmış sayfalar (1, 2, 3) veya Sonraki butonu olabilir
+        const nextBtn = page.locator('.pagination a.next, a.next-page, [data-testid="pagination-next"], a:has-text("Sonraki"), a:has-text("›"), .pr-pg-nx');
+        if (await nextBtn.count() && await nextBtn.first().isVisible().catch(() => false)) {
+          console.log(`[Trendyol] Sonraki yorum sayfasına geçiliyor...`);
+          await nextBtn.first().click().catch(() => {});
+          await page.waitForTimeout(2000);
+          continue;
+        }
+        break;
+      }
       prevSize = collected.size;
       
       await page.mouse.wheel(0, 1000);
@@ -412,16 +490,18 @@ async function scrapeHepsiburadaUrl(productUrl, maxItems) {
         const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map(s => s.textContent || '');
         for (const txt of scripts) {
           const trimmed = txt.trim();
-          if (!trimmed.includes("\"@type\":\"Review\"")) continue;
+          // Daha genel bir arama: reviewBody içeren her JSON-LD'yi işle
+          if (!trimmed.includes("reviewBody")) continue;
           let parsed;
           try { parsed = JSON.parse(trimmed); } catch { parsed = null; }
-          const items = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
-          for (const it of items) {
-            if (it && it.reviewBody) found.push(it.reviewBody);
-            if (Array.isArray(it?.review)) {
-              for (const r of it.review) { if (r?.reviewBody) found.push(r.reviewBody); }
-            }
-          }
+          
+          const extract = (obj) => {
+            if (!obj) return;
+            if (obj.reviewBody) found.push(obj.reviewBody);
+            if (Array.isArray(obj)) obj.forEach(extract);
+            else if (typeof obj === 'object') Object.values(obj).forEach(extract);
+          };
+          extract(parsed);
         }
         return found;
       } catch { return []; }
@@ -438,11 +518,21 @@ async function scrapeHepsiburadaUrl(productUrl, maxItems) {
       // Hepsiburada güncel yorum selektörleri
       const texts = await page.evaluate(() => {
         const reviews = [];
-        document.querySelectorAll('[itemprop="reviewBody"], [class*="ReviewCard"] p, .hermes-ReviewCard-module p, p[class*="review"]').forEach(el => {
-          const text = el.innerText?.trim();
-          if (text && text.length > 20 && !text.includes('yorum') && !text.includes('Değerlendir')) {
-            reviews.push(text);
-          }
+        const selectors = [
+          '[itemprop="reviewBody"]', 
+          '[class*="ReviewCard"] p', 
+          '.hermes-ReviewCard-module p', 
+          'p[class*="review"]',
+          '.review-text',
+          '.review-content'
+        ];
+        selectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => {
+            const text = el.innerText?.trim();
+            if (text && text.length > 10 && !text.includes('Hepsiburada') && !text.includes('Yorum')) {
+              reviews.push(text);
+            }
+          });
         });
         return reviews;
       }).catch(() => []);
@@ -592,10 +682,10 @@ export async function scrapeAllSites({ query, maxItems = 200, links = {} }) {
     { 
       id: 'amazon', 
       fn: async (url) => {
-        let res = url ? await scrapeAmazonUrl(url, 30) : { reviews: [] };
+        let res = url ? await scrapeAmazonUrl(url, maxItems) : { reviews: [] };
         if (!res.reviews || res.reviews.length === 0) {
           console.log(`[Amazon] Link başarısız veya boş, arama yapılıyor...`);
-          res = await scrapeAmazon(query, 30);
+          res = await scrapeAmazon(query, maxItems);
         }
         return res;
       }
@@ -603,21 +693,21 @@ export async function scrapeAllSites({ query, maxItems = 200, links = {} }) {
     { 
       id: 'trendyol', 
       fn: async (url) => {
-        let res = url ? await scrapeTrendyolUrl(url, 30) : { reviews: [] };
+        let res = url ? await scrapeTrendyolUrl(url, maxItems) : { reviews: [] };
         if (!res.reviews || res.reviews.length === 0) {
           console.log(`[Trendyol] Link başarısız veya boş, arama yapılıyor...`);
-          res = await scrapeTrendyol(query, 30);
+          res = await scrapeTrendyol(query, maxItems);
         }
         return res;
       }
     },
     { 
       id: 'hepsiburada', 
-      fn: (url) => url ? scrapeHepsiburadaUrl(url, 30) : scrapeHepsiburada(query, 30) 
+      fn: (url) => url ? scrapeHepsiburadaUrl(url, maxItems) : scrapeHepsiburada(query, maxItems) 
     },
-    { id: 'n11', fn: (url) => url ? scrapeN11Url(url, 30) : Promise.resolve({ reviews: [], sources: [] }) },
-    { id: 'pazarama', fn: (url) => url ? scrapePazaramaUrl(url, 30) : Promise.resolve({ reviews: [], sources: [] }) },
-    { id: 'ciceksepeti', fn: (url) => url ? scrapeCiceksepetiUrl(url, 30) : Promise.resolve({ reviews: [], sources: [] }) }
+    { id: 'n11', fn: (url) => url ? scrapeN11Url(url, maxItems) : Promise.resolve({ reviews: [], sources: [] }) },
+    { id: 'pazarama', fn: (url) => url ? scrapePazaramaUrl(url, maxItems) : Promise.resolve({ reviews: [], sources: [] }) },
+    { id: 'ciceksepeti', fn: (url) => url ? scrapeCiceksepetiUrl(url, maxItems) : Promise.resolve({ reviews: [], sources: [] }) }
   ];
   
   const tasks = platforms.map(p => 

@@ -86,17 +86,27 @@ export async function ingestFromQuery({ query, maxItems = 200 }) {
       discoveredTitle = akakceRes.title;
     }
 
-    if (Object.keys(links).length <= 1) {
-      const cimriRes = await scrapeCimriForLinks(discoveredTitle).catch(() => ({ links: {} }));
-      links = { ...cimriRes.links, ...links };
-      if (cimriRes.title && discoveredTitle === searchInput) discoveredTitle = cimriRes.title;
+    // Her halükarda Cimri'ye de bakarak daha fazla satıcı bulmaya çalış (kullanıcının isteği üzerine daha detaylı tarama)
+    const cimriRes = await scrapeCimriForLinks(discoveredTitle).catch(() => ({ links: {} }));
+    // Akakce'de olanı ezmemek için Cimri'den gelenleri sadece eksikse ekle
+    for (const [merchant, url] of Object.entries(cimriRes.links || {})) {
+      if (!links[merchant]) {
+        links[merchant] = url;
+      }
+    }
+    
+    if (cimriRes.title && discoveredTitle === searchInput) {
+      discoveredTitle = cimriRes.title;
     }
   } catch (err) {
     // Sessiz hata yönetimi
   }
 
   // 3. Çoklu Platform Kazıma
-  const res = await scrapeAllSites({ query: discoveredTitle, maxItems, links });
+  // Eğer kullanıcı link girmediyse (metin aratıyorsa), arama sorgusu olarak doğrudan kullanıcının girdiği 
+  // kısa/öz metni kullan. Aksi halde aşırı uzun Akakçe başlıkları Amazon/Trendyol aramalarında sonuç vermiyor.
+  const searchQuery = looksLikeUrl(searchInput) ? discoveredTitle : searchInput;
+  const res = await scrapeAllSites({ query: searchQuery, maxItems, links });
   const cleaned = dedupeAndCap(res.reviews || [], maxItems);
   
   return {

@@ -64,14 +64,16 @@ export async function analyzeWithGemini({ query, reviews, apiKey, model = 'gemin
   console.log("Prompt yollandı.");
   const prompt = [
     `Sen Türkçe ürün yorum analizi yapan bir yardımcı modelsin.`,
-    `Görevin: verilen yorumlardan 'ÜRÜNE AİT' boyutları (ör. batarya, ekran, kamera, performans, yazılım, ses, depolama, fiyat, servis) ve her boyut için olumlu/olumsuz sinyalleri çıkarmak; kronik sorunlar ve övgüleri oranlayıp kısa bir özet üretmek.`,
+    `Görevin: verilen yorumlardan SADECE 'ÜRÜNE AİT' teknik ve kullanım boyutlarını (ör. performans, yazılım, batarya, tasarım, malzeme kalitesi, fiyat/performans ve ürün türüne göre ekran, ses, depolama gibi ilgili kategoriler) çıkarmak ve olumlu/olumsuz sinyalleri gruplamaktır.`,
     `SADECE nihai JSON çıktısını ver; açıklama/markdown/kod bloğu ekleme.`,
     ``,
     platformInfo,
-    `Kapsam ve hariç tutma (çok önemli):`,
-    `- Yalnızca ürünle ilgili içerikleri değerlendir.`,
-    `- Şu dış etkenleri tamamen YOK SAY: satıcı/mağaza, kargo/teslimat/paketleme, web sitesi/uygulama deneyimi, idari iade/servis süreçleri.`,
-    `- Amaç ürün kararı; satın alınacak yeri değerlendirme.`,
+    `KAPSAM DIŞI KONULAR (BUNLARI KESİNLİKLE JSON'A EKLEME):`,
+    `- Kargo hızı, teslimat süresi, kurye/kargocu sorunları, paketleme kalitesi`,
+    `- Ürün ile alakalı olmayan genel platform/site sorunları (Takas sistemi vb.)`,
+    `- Satıcı güvenilirliği, satıcı/mağaza iletişimi`,
+    `- Müşteri hizmetleri, garanti servisi, iade süreçleri, teknik servis`,
+    `- "Kargo", "Satıcı", "Paketleme", "Servis" gibi aspect'ler (boyutlar) KESİNLİKLE OLUŞTURMA. Sadece ürünün kendi donanımı, yazılımı ve performansı ile ilgilen.`,
     ``,
     `Negasyon ve kutupluluk:`,
     `- "X değil", "yeterli değil", "sorun yok", "problem yok", "pişman değilim", "kötü değil" → olumsuzluğu tersine çevir.`,
@@ -133,18 +135,20 @@ export async function analyzeWithGemini({ query, reviews, apiKey, model = 'gemin
   }
 
   const aspects = Array.isArray(data.aspects) ? data.aspects : [];
-  const aspect_stats = aspects.map((a) => ({
-    aspect: a.name,
-    count: (a.positive_count || 0) + (a.negative_count || 0),
-    ratio: 0,
-    positive: a.positive_count || 0,
-    negative: a.negative_count || 0,
-    pos_ratio: 0,
-    neg_ratio: 0,
-    examplesPos: (a.positive_examples || []).slice(0, 3),
-    examplesNeg: (a.negative_examples || []).slice(0, 3),
-    summary: a.summary_tr || ''
-  }));
+  const aspect_stats = aspects
+    .map((a) => ({
+      aspect: a.name,
+      count: (a.positive_count || 0) + (a.negative_count || 0),
+      ratio: 0,
+      positive: a.positive_count || 0,
+      negative: a.negative_count || 0,
+      pos_ratio: 0,
+      neg_ratio: 0,
+      examplesPos: (a.positive_examples || []).slice(0, 3),
+      examplesNeg: (a.negative_examples || []).slice(0, 3),
+      summary: a.summary_tr || ''
+    }))
+    .filter(a => a.count > 0);
 
   return {
     aspect_stats,

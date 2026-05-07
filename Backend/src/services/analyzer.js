@@ -15,9 +15,7 @@ const aspects = {
   ses: ['ses', 'hoparlör', 'mikrofon', 'kulaklık', 'ses seviyesi', 'bass'],
   yazilim: ['yazılım', 'ios', 'android', 'güncelleme', 'bug', 'hata'],
   depolama: ['depolama', 'hafıza', '128gb', '256gb', '512gb', 'tb'],
-  fiyat: ['fiyat', 'pahalı', 'ucuz', 'indirim', 'f/p', 'paranın karşılığı'],
-  kargo: ['kargo', 'teslimat', 'kargolama', 'paketleme'],
-  servis: ['servis', 'garanti', 'iade', 'destek', 'müşteri hizmetleri']
+  fiyat: ['fiyat', 'pahalı', 'ucuz', 'indirim', 'f/p', 'paranın karşılığı']
 };
 
 // Simple lexicons with negation handling support (… değil)
@@ -151,10 +149,10 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
 
   console.log(`[Analyzer] Ingestion completed. Found ${reviews.length} reviews from sources: ${sources.join(', ')}`);
   
-  if (!reviews.length) {
+  if (reviews.length < 10) {
     const sourceErrors = sources.filter(s => s.includes(':error'));
     const errorDetail = sourceErrors.length > 0 ? ` (Hatalar: ${sourceErrors.join(', ')})` : '';
-    throw new Error(`Ürün için hiç yorum toplanamadı. URL'nin doğruluğunu kontrol edin veya ürün adıyla tekrar deneyin.${errorDetail}`);
+    throw new Error(`Yeterince yorum toplanamadı (Bulunan: ${reviews.length}, En az: 10). Sağlıklı bir yapay zeka analizi için daha fazla yorum içeren bir ürün deneyin.${errorDetail}`);
   }
 
   // Preprocess with Python NLP API

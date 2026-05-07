@@ -7,6 +7,7 @@ import { analyzeQuery, analyzeProvidedReviews } from './services/analyzer.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { prisma } from './services/db.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -79,6 +80,85 @@ app.post('/analyze/raw', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Analiz sırasında hata oluştu.', detail: String(err?.message || err) });
+  }
+});
+
+app.get('/analyses/recent', async (req, res) => {
+  try {
+    const { limit = 6 } = req.query;
+    const recent = await prisma.productAnalysis.findMany({
+      take: Number(limit),
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        query: true,
+        totalReviews: true,
+        analyzedReviews: true,
+        createdAt: true,
+        aspectStats: {
+          select: { aspect: true }
+        }
+      }
+    });
+    
+    const formatted = recent.map(r => ({
+      id: r.id,
+      query: r.query,
+      analyzed_reviews: r.analyzedReviews,
+      aspect_count: r.aspectStats.length,
+      date: r.createdAt
+    }));
+    
+    res.json(formatted);
+  } catch (err) {
+    console.error('[Recent Analyses Error]', err);
+    res.status(500).json({ error: 'Geçmiş analizler alınamadı', detail: String(err?.message || err) });
+  }
+});
+
+app.get('/analyses/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await prisma.productAnalysis.findUnique({
+      where: { id },
+      include: { aspectStats: true, highlights: true }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Analiz bulunamadı.' });
+    }
+
+    const result = {
+      query: existing.query,
+      productTitle: existing.query,
+      perPlatform: {},
+      sources: ['database'],
+      total_reviews: existing.totalReviews,
+      analyzed_reviews: existing.analyzedReviews,
+      aspect_stats: existing.aspectStats.map(a => ({
+        aspect: a.aspect,
+        count: a.count,
+        ratio: a.ratio,
+        positive: a.positive,
+        negative: a.negative,
+        pos_ratio: a.posRatio,
+        neg_ratio: a.negRatio,
+        examplesPos: a.examplesPos,
+        examplesNeg: a.examplesNeg,
+        summary: a.summary
+      })),
+      highlights: {
+        issues: existing.highlights.filter(h => h.type === 'issue').map(h => ({ name: h.name, reason: h.reason })),
+        praises: existing.highlights.filter(h => h.type === 'praise').map(h => ({ name: h.name, reason: h.reason }))
+      },
+      per_platform_summary: {},
+      summary: existing.summary
+    };
+
+    res.json(result);
+  } catch (err) {
+    console.error('[Analysis Fetch Error]', err);
+    res.status(500).json({ error: 'Analiz alınırken hata oluştu.', detail: String(err?.message || err) });
   }
 });
 

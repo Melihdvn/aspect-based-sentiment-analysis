@@ -36,9 +36,25 @@ export async function scrapeAkakceForLinks(query) {
     if (page.url().includes(',fiyatlari') || page.url().includes(',223') || await page.locator('h1').count() > 0 && !page.url().includes('/arama/')) {
       console.log(`[Akakçe] Zaten detay sayfasındayız: ${page.url()}`);
     } else {
-      const firstProduct = page.locator('li[data-pr] a, .bt_v8, a[href*="/cep-telefonu/"], a[href*="/fiyatlari/"]').first();
-      if (await firstProduct.count() === 0) {
-        console.warn("[Akakçe] Ürün bulunamadı.");
+      // Tüm ürünleri bul ve aksesuar olmayan ilkini seç
+      const products = page.locator('li[data-pr] a, .bt_v8, a[href*="/fiyatlari/"]');
+      const count = await products.count();
+      let firstProduct = null;
+      
+      for (let i = 0; i < Math.min(count, 5); i++) {
+        const p = products.nth(i);
+        const pText = (await p.innerText()).toLowerCase();
+        const forbidden = ['askı', 'aparat', 'kılıf', 'koruyucu', 'cam', 'kordon', 'çanta', 'kapak'];
+        const isAccessory = forbidden.some(word => pText.includes(word)) && !query.toLowerCase().includes('askı') && !query.toLowerCase().includes('aparat');
+        
+        if (!isAccessory) {
+          firstProduct = p;
+          break;
+        }
+      }
+
+      if (!firstProduct) {
+        console.warn("[Akakçe] Uygun (aksesuar olmayan) ürün bulunamadı.");
         return {};
       }
 
@@ -70,9 +86,9 @@ export async function scrapeAkakceForLinks(query) {
         if (!isOffer) return;
 
         let parent = link.parentElement;
-        let merchantName = '';
-        
-        for (let i = 0; i < 6 && parent; i++) {
+        // Akakce'de satıcı isimleri listelerde <li> veya <tr> içinde olur.
+        // Çok fazla yukarı (6 seviye) çıkmak tablonun tamamını kapsayıp yanlış satıcıları eşleştirebiliyor.
+        for (let i = 0; i < 3 && parent; i++) {
           const pText = (parent.innerText || '').toLowerCase();
           const imgs = Array.from(parent.querySelectorAll('img'));
           const altText = imgs.map(img => (img.getAttribute('alt') || img.getAttribute('src') || '').toLowerCase()).join(' ');
