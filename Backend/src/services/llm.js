@@ -3,7 +3,6 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 function stripJson(text) {
   if (!text) return text;
   let t = text.trim();
-  // Remove code fences if present
   t = t.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
   const start = t.indexOf('{');
   const end = t.lastIndexOf('}');
@@ -13,16 +12,16 @@ function stripJson(text) {
   return t;
 }
 
-export async function analyzeWithGemini({ query, reviews, apiKey, model = 'gemini-1.5-flash' }) {
+export async function analyzeWithGemini({ query, reviews, apiKey, model = 'gemini-2.5-pro' }) {
   if (!apiKey) throw new Error('Missing GOOGLE_API_KEY');
   const genAI = new GoogleGenerativeAI(apiKey);
   const modelRef = genAI.getGenerativeModel({ model });
 
-  const maxReviews = Number(process.env.GEMINI_MAX_REVIEWS || 120);
-  const maxChars = Number(process.env.GEMINI_MAX_CHARS || 280);
+  const maxReviews = Number(process.env.GEMINI_MAX_REVIEWS || 250);
+  const maxChars = Number(process.env.GEMINI_MAX_CHARS || 300);
   const maxN = Math.min(maxReviews, reviews.length);
 
-  // Her yorumu platform etiketiyle formatla
+  // Format comments with platform tags
   const joined = reviews
     .slice(0, maxN)
     .map((r) => {
@@ -31,84 +30,136 @@ export async function analyzeWithGemini({ query, reviews, apiKey, model = 'gemin
     })
     .join('\n');
 
-  // Hangi platformlardan yorum geldiğini tespit et
   const platformsInData = [...new Set(reviews.slice(0, maxN).map(r => r.platform).filter(Boolean))];
   const platformInfo = platformsInData.length > 0
-    ? `Bu yorumlar şu platformlardan toplandı: ${platformsInData.join(', ')}. Her yorumun başında platform etiketi ([amazon], [trendyol], [hepsiburada]) bulunmaktadır.\n`
+    ? `Each review is prefixed with a platform tag: ${platformsInData.join(', ')}.\n`
     : '';
 
-  // JSON şemasını ayrı bir string olarak oluştur (escape sorunlarını önlemek için)
   const jsonSchema = JSON.stringify({
+    product_summary: "Clean, objective, evidence-based overall summary in Turkish.",
+    summary_tr: "Ürün için Türkçe kısa, net, kanıta dayalı genel sonuç.",
+    overall_sentiment: {
+      positive: 0,
+      negative: 0,
+      neutral: 0,
+      confidence: 0.0
+    },
     aspects: [
       {
         name: "batarya",
         positive_count: 0,
         negative_count: 0,
         summary_tr: "Kullanıcılar bataryanın .... olduğunu belirtmiş...",
-        positive_examples: [],
-        negative_examples: []
+        positive_examples: ["Kullanıcı yorumundan gerçek bir Türkçe olumlu alıntı (örn: 'şarjı 2 gün gidiyor')"],
+        negative_examples: ["Kullanıcı yorumundan gerçek bir Türkçe olumsuz alıntı (örn: 'şarjı çok yavaş doluyor')"]
+      }
+    ],
+    aspect_analysis: [
+      {
+        aspect: "BATTERY",
+        mentions: 0,
+        positive: 0,
+        negative: 0,
+        net_sentiment_score: 0.0,
+        confidence: 0.0,
+        summary: "Concise summary in Turkish explaining consensus for this aspect."
       }
     ],
     highlights: {
-      issues: [{ name: "...", reason: "kısa gerekçe (ürüne dair)" }],
-      praises: [{ name: "...", reason: "kısa gerekçe (ürüne dair)" }]
+      issues: [{ name: "Zayıf Yön Adı", reason: "Ürüne dair kısa Türkçe gerekçe." }],
+      praises: [{ name: "Güçlü Yön Adı", reason: "Ürüne dair kısa Türkçe gerekçe." }]
     },
-    per_platform_summary: {
-      amazon: "Amazon kullanıcıları özellikle X konusunda olumlu/olumsuz...",
-      trendyol: "Trendyol kullanıcıları genel olarak...",
-      hepsiburada: "Hepsiburada kullanıcıları..."
+    key_insights: {
+      strongest_points: [
+        { name: "Güçlü Özellik", reason: "Grounding reason in Turkish." }
+      ],
+      weakest_points: [
+        { name: "Zayıf Özellik", reason: "Grounding reason in Turkish." }
+      ],
+      surprises: [
+        "Concise unexpected findings in Turkish."
+      ]
     },
-    summary_tr: "Ürün için kısa ve net sonuç."
+    data_quality: {
+      total_reviews: 0,
+      aspect_coverage_ratio: 0.0,
+      noise_ratio: 0.0
+    }
   }, null, 2);
 
-  console.log("Prompt yollandı.");
   const prompt = [
-    `Sen Türkçe ürün yorum analizi yapan bir yardımcı modelsin.`,
-    `Görevin: verilen yorumlardan SADECE 'ÜRÜNE AİT' teknik ve kullanım boyutlarını (ör. performans, yazılım, batarya, tasarım, malzeme kalitesi, fiyat/performans ve ürün türüne göre ekran, ses, depolama gibi ilgili kategoriler) çıkarmak ve olumlu/olumsuz sinyalleri gruplamaktır.`,
-    `SADECE nihai JSON çıktısını ver; açıklama/markdown/kod bloğu ekleme.`,
+    `You are a strict Product Review Intelligence Engine. Your job is not to summarize text casually, but to extract structured, verifiable, aspect-based product intelligence from user reviews.`,
     ``,
+    `INPUT:`,
     platformInfo,
-    `KAPSAM DIŞI KONULAR (BUNLARI KESİNLİKLE JSON'A EKLEME):`,
-    `- Kargo hızı, teslimat süresi, kurye/kargocu sorunları, paketleme kalitesi`,
-    `- Ürün ile alakalı olmayan genel platform/site sorunları (Takas sistemi vb.)`,
-    `- Satıcı güvenilirliği, satıcı/mağaza iletişimi`,
-    `- Müşteri hizmetleri, garanti servisi, iade süreçleri, teknik servis`,
-    `- "Kargo", "Satıcı", "Paketleme", "Servis" gibi aspect'ler (boyutlar) KESİNLİKLE OLUŞTURMA. Sadece ürünün kendi donanımı, yazılımı ve performansı ile ilgilen.`,
     ``,
-    `Negasyon ve kutupluluk:`,
-    `- "X değil", "yeterli değil", "sorun yok", "problem yok", "pişman değilim", "kötü değil" → olumsuzluğu tersine çevir.`,
-    `- "X demek doğru değil" → X iddiasını reddeder (negatif değil, genelde olumlu/nötr).`,
-    `- Örnekler (negatif DEĞİL):`,
-    `  • "Depolama 128GB bana yetti, iCloud ile sorun yok." → depolama: pozitif`,
-    `  • "Batarya çabuk bitiyor demek doğru değil, bana bir gün yetiyor." → batarya: pozitif`,
+    `HARD RULES (NON-NEGOTIABLE):`,
+    `1. Only extract information related to the PRODUCT ITSELF:`,
+    `   - Allowed aspects: hardware, build quality, performance, battery, screen, camera, software, usability, durability, price/performance perception.`,
+    `   - Forbidden: shipping, seller behavior, delivery speed, packaging, customer service, logistics, platform complaints.`,
+    `2. Do NOT invent aspects. Only use aspects explicitly supported by reviews.`,
+    `3. Do NOT generalize across platforms unless statistically supported.`,
+    `4. Every claim must be grounded in multiple reviews when possible. If sample size is small, mark confidence as LOW.`,
+    `5. Handle negation correctly:`,
+    `   - "iyi değil" = negative`,
+    `   - "kötü değil" = neutral/positive leaning depending context`,
+    `   - "pişman değilim" = positive sentiment`,
+    `6. Merge semantic duplicates strictly into capital case aspect clusters:`,
+    `   - "tuş", "tıklama", "click feel" → BUTTONS_AND_CLICK (mapped to "tuşlar_ve_tıklama" in Turkish name)`,
+    `   - "pil", "batarya", "şarj" → BATTERY (mapped to "batarya" in Turkish name)`,
+    `   - "performans", "hız", "lag" → PERFORMANCE (mapped to "performans" in Turkish name)`,
+    `   - "ekran", "parlaklık", "çözünürlük" → SCREEN (mapped to "ekran" in Turkish name)`,
+    `   - "ses", "hoparlör", "mikrofon" → SOUND (mapped to "ses" in Turkish name)`,
+    `   - "yazılım", "güncelleme", "bug" → SOFTWARE (mapped to "yazılım" in Turkish name)`,
+    `   - "tasarım", "malzeme", "kasa" → BUILD_QUALITY (mapped to "tasarım" in Turkish name)`,
+    `   - "fiyat", "pahalı", "ucuz" → PRICE_PERCEPTION (mapped to "fiyat" in Turkish name)`,
+    `   - "kamera", "fotoğraf", "video", "lens" → CAMERA (mapped to "kamera" in Turkish name)`,
+    `   - "depolama", "hafıza", "alan", "disk" → STORAGE (mapped to "depolama" in Turkish name)`,
+    `7. If uncertain → reduce confidence, do not guess.`,
+    `8. STRICT TURKISH SPELLING & CASING RULE (CRITICAL):`,
+    `   - All aspect names, product summaries, insights, highlights, and examples MUST be written in natural, correct, and grammatically proper Turkish.`,
+    `   - Pay extreme attention to Turkish character casing: uppercase "İ" corresponds to lowercase "i" (e.g., use "İyi" / "İşlemci", NOT "Iyi" / "Işlemci"), and uppercase "I" corresponds to lowercase "ı" (e.g., use "Hızlı" / "Tasarım", NOT "Hizli" / "Tasarim").`,
+    `   - Ensure proper use of dotted/dotless letters. For example, never use lowercase "i" in place of "ı" (e.g. use "şarjı", "özelliği", "tasarımı", "yazılımı" - NOT "şarji", "özelliği", "tasarimi", "yazilimi"), and never use lowercase "ı" in place of "i" (e.g. use "bilgi", "kullanıcı" - NOT "bılgi", "kullanıcı").`,
     ``,
-    `Filtreleme: 5 kelimeden kısa ve içeriksiz yorumları at; tekrarları kullanma.`,
+    `DATA SIZE & COUNTING ACCURACY (CRITICAL FOR RESEARCH QUALITY):`,
+    `- We are providing you with up to ${maxN} reviews. You MUST analyze all of them.`,
+    `- DO NOT under-count. Count every single valid positive/negative aspect mention across all reviews.`,
+    `- If 100 reviews mention performance positively, positive_count for PERFORMANCE must be close to 100, not a small single-digit count.`,
+    `- The total of positive, negative, and neutral counts in "overall_sentiment" MUST sum up EXACTLY to the number of reviews analyzed (total_reviews).`,
+    `- Your stats must realistically reflect the entire volume of comments provided, showing your rigorous statistical processing of large datasets.`,
     ``,
-    `Çıktı şeması (yalnızca geçerli JSON, eksik parantez veya virgül olmamasına ÇOK DİKKAT ET):`,
+    `OUTPUT FORMAT (STRICT JSON ONLY):`,
+    `Return ONLY a valid JSON string matching this exact schema:`,
     jsonSchema,
     ``,
-    `ÖNEMLİ KURALLAR:`,
-    `- "summary_tr" alanını yazarken robotik bir dil değil, doğal ve kapsayıcı bir dil kullan.`,
-    `- "per_platform_summary" alanında yalnızca veride mevcut platformları yaz; veri yoksa o platformu ekleme.`,
-    `- **DİKKAT:** Bir özellikle (aspect) ilgili HİÇ yorum yoksa (positive_count=0 ve negative_count=0 ise), o özelliği JSON'a KESİNLİKLE EKLEME.`,
-    `- Yalnızca kullanıcıların gerçekten bahsettiği konulardan bahset.`,
+    `QUALITY CONTROL STEP (INTERNAL BEFORE ANSWER):`,
+    `- Verify aspect counts`,
+    `- Verify sentiment totals align with mentions`,
+    `- Ensure no non-product content exists`,
+    `- Ensure JSON validity`,
+    `- Ensure no hallucinated aspects`,
     ``,
-    `Ürün: ${query}`,
-    `Yorumlar:`,
+    `Product to analyze: ${query}`,
+    `Reviews list:`,
     joined
   ].join('\n');
 
+  console.log("[LLM][Gemini] Sending strict blended Product Review Intelligence Engine prompt...");
+  
   const maxRetries = Number(process.env.LLM_RETRIES || 5);
   const baseDelay = Number(process.env.LLM_BACKOFF_MS || 800);
   let text = '';
   let data;
+  
   for (let attempt = 0; attempt <= maxRetries; attempt++){
-    try{
+    try {
       const resp = await modelRef.generateContent({ contents: [{ role: 'user', parts: [{ text: prompt }] }] });
       text = resp?.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
       if (process.env.LOG_LLM === '1') {
         console.log('[LLM][Gemini] Raw response text:\n', text);
       }
+      
       const jsonText = stripJson(text);
       try {
         data = JSON.parse(jsonText);
@@ -118,42 +169,19 @@ export async function analyzeWithGemini({ query, reviews, apiKey, model = 'gemin
         throw err;
       }
       break; // parsed ok
-    } catch(err){
+    } catch (err) {
       const msg = String(err?.message || err || '').toLowerCase();
       const retryable = msg.includes('503') || msg.includes('429') || msg.includes('overload') || msg.includes('unavailable');
-      if (retryable && attempt < maxRetries){
+      if (retryable && attempt < maxRetries) {
         const jitter = Math.floor(Math.random() * 200);
         const wait = baseDelay * Math.pow(2, attempt) + jitter;
-        if (process.env.LOG_LLM === '1') {
-          console.warn(`[LLM][Gemini] retry ${attempt+1}/${maxRetries} after ${wait}ms due to:`, err?.message || err);
-        }
-        await new Promise(r=>setTimeout(r, wait));
+        console.warn(`[LLM][Gemini] Retry ${attempt+1}/${maxRetries} after ${wait}ms due to error:`, err?.message || err);
+        await new Promise(r => setTimeout(r, wait));
         continue;
       }
       throw err;
     }
   }
 
-  const aspects = Array.isArray(data.aspects) ? data.aspects : [];
-  const aspect_stats = aspects
-    .map((a) => ({
-      aspect: a.name,
-      count: (a.positive_count || 0) + (a.negative_count || 0),
-      ratio: 0,
-      positive: a.positive_count || 0,
-      negative: a.negative_count || 0,
-      pos_ratio: 0,
-      neg_ratio: 0,
-      examplesPos: (a.positive_examples || []).slice(0, 3),
-      examplesNeg: (a.negative_examples || []).slice(0, 3),
-      summary: a.summary_tr || ''
-    }))
-    .filter(a => a.count > 0);
-
-  return {
-    aspect_stats,
-    highlights: data.highlights || { issues: [], praises: [] },
-    summary: data.summary_tr || '',
-    per_platform_summary: data.per_platform_summary || {}
-  };
+  return data;
 }

@@ -5,7 +5,7 @@ import { SearchOutlined, ThunderboltOutlined, LoadingOutlined, CheckCircleOutlin
 import { useAnalysis } from '../App.jsx';
 
 const { Title, Paragraph, Text } = Typography;
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`;
 
 export default function Home() {
   const [query, setQuery] = useState('');
@@ -53,7 +53,7 @@ export default function Home() {
           Bilinçli Alışverişin<br />Yapay Zeka Hali
         </Title>
         <Paragraph className="hero-subtitle">
-          Amazon, Trendyol ve Hepsiburada'daki binlerce müşteri yorumunu saniyeler içinde analiz edin. 
+          Türkiye'nin önde gelen alışveriş sitelerindeki binlerce müşteri yorumunu saniyeler içinde analiz edin. 
           Ürünlerin öne çıkan iyi ve kötü yönlerini arka planda yapay zeka ile keşfedin.
         </Paragraph>
 
@@ -175,7 +175,7 @@ export default function Home() {
                   </div>
                   
                   <Title level={5} style={{ margin: '0 0 8px 0', fontSize: '16px', lineHeight: '1.4' }} ellipsis={{ rows: 2 }}>
-                    {item.query}
+                    {item.productTitle || item.query}
                   </Title>
                   
                   <div style={{ display: 'flex', gap: '16px', marginTop: '16px' }}>

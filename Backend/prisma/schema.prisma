@@ -10,6 +10,7 @@ datasource db {
 model ProductAnalysis {
   id               String       @id @default(uuid())
   query            String       @unique // The search query used (e.g., product name or URL)
+  productTitle     String?      // The actual product title scraped from sites
   totalReviews     Int
   analyzedReviews  Int
   summary          String       @db.Text

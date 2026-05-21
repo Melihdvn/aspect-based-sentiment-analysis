@@ -1,98 +1,152 @@
 import React from 'react';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
-import { Typography, Row, Badge } from 'antd';
+import { Typography, Tag, Tooltip } from 'antd';
+import { MessageOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
 
-function CustomTooltip({ active, payload, label }) {
-  if (active && payload && payload.length) {
-    const p = payload[0]?.payload || {};
-    return (
-      <div style={{
-        background: 'rgba(255, 255, 255, 0.95)',
-        border: '1px solid #e2e8f0',
-        padding: '16px',
-        borderRadius: '12px',
-        maxWidth: '320px',
-        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-        backdropFilter: 'blur(8px)'
-      }}>
-        <div style={{ fontWeight: 700, fontSize: '16px', color: '#1e293b', marginBottom: '8px', textTransform: 'uppercase' }}>
-          {label}
-        </div>
-        <Row justify="space-between" style={{ marginBottom: '8px' }}>
-          <Text type="secondary" style={{ fontSize: '13px' }}>Genel Memnuniyet (Oran)</Text>
-          <Text strong style={{ color: p.ratio > 50 ? '#10b981' : (p.ratio < 30 ? '#ef4444' : '#f59e0b') }}>{p.ratio}%</Text>
-        </Row>
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '13px' }}>
-          <div><Badge color="#10b981" text={`Olumlu: ${p.positive}`} /></div>
-          <div><Badge color="#ef4444" text={`Olumsuz: ${p.negative}`} /></div>
-        </div>
-        {p.summary && (
-          <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed #cbd5e1' }}>
-            <Text type="secondary" style={{ fontSize: '13px', lineHeight: '1.5' }}>{p.summary}</Text>
-          </div>
-        )}
-      </div>
-    );
-  }
-  return null;
-}
-
 export default function AspectBarChart({ data = [] }) {
-  // Sort data by total mentions (positive + negative) to show the most discussed first
-  const chartData = [...data].sort((a, b) => b.count - a.count).map(d => ({
-    name: d.aspect,
-    ratio: Math.round(d.ratio),
-    positive: d.positive,
-    negative: d.negative,
-    summary: d.summary,
-    count: d.count
-  }));
+  // Sort by total count descending
+  const sortedData = [...data].sort((a, b) => b.count - a.count);
 
   return (
-    <div style={{ width: '100%', height: '100%', minHeight: '380px' }}>
-      <ResponsiveContainer>
-        <BarChart
-          data={chartData}
-          margin={{ top: 20, right: 20, bottom: 40, left: 0 }}
-          barSize={40}
-        >
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-          <XAxis
-            dataKey="name"
-            tick={{ fill: '#64748b', fontSize: 13, fontWeight: 500 }}
-            tickMargin={12}
-            axisLine={{ stroke: '#cbd5e1' }}
-            tickLine={false}
-          />
-          <YAxis
-            tick={{ fill: '#64748b', fontSize: 13 }}
-            axisLine={false}
-            tickLine={false}
-            tickMargin={8}
-            allowDecimals={false}
-          />
-          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(226, 232, 240, 0.4)' }} />
-          <Legend wrapperStyle={{ paddingTop: '20px' }} />
-          <Bar
-            dataKey="positive"
-            stackId="a"
-            name="Olumlu Yorumlar"
-            fill="#10b981"
-            animationDuration={1500}
-            animationEasing="ease-out"
-          />
-          <Bar
-            dataKey="negative"
-            stackId="a"
-            name="Olumsuz Yorumlar"
-            fill="#ef4444"
-            animationDuration={1500}
-            animationEasing="ease-out"
-          />
-        </BarChart>
-      </ResponsiveContainer>
+    <div style={{ padding: '8px 0' }}>
+      {sortedData.map((d, index) => {
+        const total = d.count || (d.positive + d.negative) || 1;
+        const posPercent = Math.round((d.positive / total) * 100);
+        const negPercent = Math.round((d.negative / total) * 100);
+        const mentionRatio = Math.round(d.ratio || 0);
+
+        return (
+          <div 
+            key={d.aspect} 
+            style={{ 
+              marginBottom: '24px', 
+              paddingBottom: '20px', 
+              borderBottom: index !== sortedData.length - 1 ? '1px solid #f1f5f9' : 'none'
+            }}
+          >
+            {/* Line 1: Header (Left: Aspect Name & Mention Ratio, Right: Comment counts statically visible) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+              {/* Left Side: Aspect Name & Mention Ratio */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.3px', textTransform: 'uppercase' }}>
+                  {d.aspect}
+                </span>
+                <Tag 
+                  color="blue" 
+                  style={{ 
+                    borderRadius: '6px', 
+                    fontSize: '11px', 
+                    fontWeight: 700, 
+                    margin: 0,
+                    background: '#eff6ff',
+                    color: '#2563eb',
+                    border: 'none',
+                    padding: '2px 8px'
+                  }}
+                >
+                  %{mentionRatio} Bahsedilme Oranı
+                </Tag>
+              </div>
+
+              {/* Right Side: Raw Comment numbers statically visible */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Tag 
+                  icon={<MessageOutlined style={{ marginRight: 4 }} />} 
+                  style={{ 
+                    borderRadius: '6px', 
+                    fontSize: '11px', 
+                    fontWeight: 600,
+                    margin: 0,
+                    background: '#f8fafc',
+                    color: '#475569',
+                    border: '1px solid #e2e8f0',
+                    padding: '2px 8px'
+                  }}
+                >
+                  {total} Yorum
+                </Tag>
+                <span 
+                  style={{ 
+                    fontSize: '11px', 
+                    color: '#10b981', 
+                    fontWeight: 700, 
+                    background: '#f0fdf4', 
+                    padding: '2px 8px', 
+                    borderRadius: '6px',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.01)' 
+                  }}
+                >
+                  +{d.positive} Olumlu
+                </span>
+                <span 
+                  style={{ 
+                    fontSize: '11px', 
+                    color: '#ef4444', 
+                    fontWeight: 700, 
+                    background: '#fef2f2', 
+                    padding: '2px 8px', 
+                    borderRadius: '6px',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.01)'
+                  }}
+                >
+                  -{d.negative} Olumsuz
+                </span>
+              </div>
+            </div>
+
+            {/* Line 2: Full Width Proportional Stacked Progress Bar (Ultra-Thin 5px, hover to see percentages) */}
+            <div 
+              style={{ 
+                display: 'flex', 
+                width: '100%', 
+                height: '5px', 
+                borderRadius: '3px', 
+                overflow: 'hidden', 
+                background: '#e2e8f0',
+                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)',
+                position: 'relative'
+              }}
+            >
+              {/* Positive Segment (Green) */}
+              {d.positive > 0 && (
+                <Tooltip title={`%${posPercent} Olumlu (${d.positive} Yorum)`} placement="top">
+                  <div 
+                    className="aspect-bar-segment"
+                    style={{ 
+                      width: `${posPercent}%`, 
+                      height: '100%', 
+                      background: 'linear-gradient(90deg, #10b981, #059669)', 
+                      cursor: 'pointer',
+                      transition: 'filter 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
+                    onMouseLeave={(e) => e.currentTarget.style.filter = 'none'}
+                  />
+                </Tooltip>
+              )}
+
+              {/* Negative Segment (Red) */}
+              {d.negative > 0 && (
+                <Tooltip title={`%${negPercent} Olumsuz (${d.negative} Yorum)`} placement="top">
+                  <div 
+                    className="aspect-bar-segment"
+                    style={{ 
+                      width: `${negPercent}%`, 
+                      height: '100%', 
+                      background: 'linear-gradient(90deg, #f87171, #ef4444)', 
+                      cursor: 'pointer',
+                      transition: 'filter 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
+                    onMouseLeave={(e) => e.currentTarget.style.filter = 'none'}
+                  />
+                </Tooltip>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

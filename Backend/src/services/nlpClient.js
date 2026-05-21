@@ -26,7 +26,15 @@ export async function preprocessReviews(reviews, targetLang = 'tr', similarityTh
     const data = await response.json();
     if (data && data.results) {
         // Map back to format expected by LLM (we use original_text so Gemini can extract capitalized quotes and summaries)
-        return data.results.map(r => ({ text: r.original_text }));
+        // while preserving the original review attributes (such as platform)
+        return data.results.map(r => {
+          const index = parseInt(r.id, 10);
+          const originalReview = reviews[index] || {};
+          return {
+            ...originalReview,
+            text: r.original_text
+          };
+        });
     }
   } catch (error) {
     console.error('Error calling NLP Service:', error.message);

@@ -1,16 +1,22 @@
-import { extractTitleFromAmazon, extractTitleFromTrendyol, extractTitleFromHepsiburada, normalizeTitle } from './titleExtractor.js';
+import {
+  extractTitleFromAmazon,
+  extractTitleFromTrendyol,
+  extractTitleFromHepsiburada,
+  normalizeTitle
+} from './titleExtractor.js';
 import { withPage, scrapeAllSites } from './search_playwright.js';
 import { scrapeAkakceForLinks } from './akakce.js';
 import { scrapeCimriForLinks } from './cimri.js';
 
-// TIMESTAMP: 2026-04-28-14-58
 function normalizeText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
-function dedupeAndCap(reviews, maxItems) {
+function balanceAndDedupeReviews(reviews, maxItems) {
+  const normalized = [];
   const seen = new Set();
-  const out = [];
+
+  // 1. Initial deduplication and cleaning
   for (const r of reviews) {
     if (!r || !r.text) continue;
     const t = normalizeText(r.text);
@@ -18,9 +24,37 @@ function dedupeAndCap(reviews, maxItems) {
     const key = t.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ text: t, platform: r.platform || undefined });
-    if (out.length >= maxItems) break;
+    normalized.push({ text: t, platform: r.platform || 'unknown' });
   }
+
+  // 2. Group by platform
+  const byPlatform = {};
+  for (const r of normalized) {
+    const p = r.platform || 'unknown';
+    if (!byPlatform[p]) {
+      byPlatform[p] = [];
+    }
+    byPlatform[p].push(r);
+  }
+
+  const platforms = Object.keys(byPlatform);
+  if (platforms.length === 0) return [];
+
+  // 3. Proportional extraction loop (Round-Robin)
+  const out = [];
+  const activePlatforms = new Set(platforms);
+  
+  while (out.length < maxItems && activePlatforms.size > 0) {
+    for (const p of Array.from(activePlatforms)) {
+      if (byPlatform[p].length > 0) {
+        out.push(byPlatform[p].shift());
+        if (out.length >= maxItems) break;
+      } else {
+        activePlatforms.delete(p);
+      }
+    }
+  }
+
   return out;
 }
 
@@ -52,15 +86,16 @@ export async function ingestFromQuery({ query, maxItems = 200 }) {
     return { reviews: [], sources: ['live-disabled'], productTitle: '', perPlatform: {} };
   }
 
-  // URL'nin sonundaki enter veya görünmez karakterleri temizle
+  // Clear carriage returns/line breaks
   const searchInput = String(query || '').trim().replace(/[\u21B5\r\n\t]/g, '');
   
   let links = {};
   let discoveredTitle = searchInput;
 
-// [Ingestion] URL algılandı
+  // 1. Direct URL extraction
   if (looksLikeUrl(searchInput)) {
     const sourcePlatform = detectSource(searchInput);
+    console.log(`[Ingestion] Direct URL detected: ${searchInput} (${sourcePlatform})`);
     
     const extraction = await withPage(async (page) => {
       await page.goto(searchInput, { waitUntil: 'domcontentloaded' });
@@ -70,7 +105,7 @@ export async function ingestFromQuery({ query, maxItems = 200 }) {
       else if (sourcePlatform === 'hepsiburada') title = await extractTitleFromHepsiburada(page, searchInput);
       else title = await page.title();
       return { title };
-    }).catch(() => ({ title: '' }));
+    }, sourcePlatform).catch(() => ({ title: '' }));
 
     if (extraction.title) {
       discoveredTitle = normalizeTitle(extraction.title);
@@ -78,7 +113,7 @@ export async function ingestFromQuery({ query, maxItems = 200 }) {
     }
   }
 
-  // 2. Link Keşfi (Akakçe/Cimri)
+  // 2. Cross-platform discovery (Akakçe + Cimri)
   try {
     const akakceRes = await scrapeAkakceForLinks(discoveredTitle).catch(() => ({ links: {} }));
     links = { ...akakceRes.links, ...links };
@@ -86,9 +121,7 @@ export async function ingestFromQuery({ query, maxItems = 200 }) {
       discoveredTitle = akakceRes.title;
     }
 
-    // Her halükarda Cimri'ye de bakarak daha fazla satıcı bulmaya çalış (kullanıcının isteği üzerine daha detaylı tarama)
     const cimriRes = await scrapeCimriForLinks(discoveredTitle).catch(() => ({ links: {} }));
-    // Akakce'de olanı ezmemek için Cimri'den gelenleri sadece eksikse ekle
     for (const [merchant, url] of Object.entries(cimriRes.links || {})) {
       if (!links[merchant]) {
         links[merchant] = url;
@@ -99,15 +132,17 @@ export async function ingestFromQuery({ query, maxItems = 200 }) {
       discoveredTitle = cimriRes.title;
     }
   } catch (err) {
-    // Sessiz hata yönetimi
+    console.warn('[Discovery] Cross-platform search failed:', err.message);
   }
 
-  // 3. Çoklu Platform Kazıma
-  // Eğer kullanıcı link girmediyse (metin aratıyorsa), arama sorgusu olarak doğrudan kullanıcının girdiği 
-  // kısa/öz metni kullan. Aksi halde aşırı uzun Akakçe başlıkları Amazon/Trendyol aramalarında sonuç vermiyor.
+  // 3. Multi-platform parallel scraping
   const searchQuery = looksLikeUrl(searchInput) ? discoveredTitle : searchInput;
+  console.log(`[Ingestion] Starting parallel scraping for query: "${searchQuery}" with links:`, links);
+  
   const res = await scrapeAllSites({ query: searchQuery, maxItems, links });
-  const cleaned = dedupeAndCap(res.reviews || [], maxItems);
+  const cleaned = balanceAndDedupeReviews(res.reviews || [], maxItems);
+  
+  console.log(`[Ingestion] Completed. Scraped total of ${cleaned.length} reviews.`);
   
   return {
     reviews: cleaned,

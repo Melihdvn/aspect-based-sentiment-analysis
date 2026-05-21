@@ -92,7 +92,7 @@ async function readSample({ maxItems }) {
   return all.slice(0, maxItems);
 }
 
-export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
+export async function analyzeQuery({ query, maxItems = 500, useLLM = true }) {
   // Check if analysis already exists in the database
   try {
     const existing = await prisma.productAnalysis.findUnique({
@@ -104,7 +104,7 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
       console.log(`[Cache Hit] Returning DB record for query: ${query}`);
       return {
         query: existing.query,
-        productTitle: existing.query,
+        productTitle: existing.productTitle || existing.query,
         perPlatform: {},
         sources: ['database'],
         total_reviews: existing.totalReviews,
@@ -176,23 +176,39 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
         query,
         reviews,
         apiKey: process.env.GOOGLE_API_KEY,
-        model: process.env.GEMINI_MODEL || 'gemini-1.5-flash'
+        model: process.env.GEMINI_MODEL || 'gemini-2.5-pro'
       });
 
-      // Compute ratios post-hoc
-      const totalMentions = llm.aspect_stats.reduce((acc, x) => acc + x.count, 0) || 1;
-      const aspect_stats = llm.aspect_stats.map(x => ({
-        ...x,
-        ratio: +(100 * x.count / totalMentions).toFixed(2),
-        pos_ratio: x.count ? +(100 * x.positive / x.count).toFixed(2) : 0,
-        neg_ratio: x.count ? +(100 * x.negative / x.count).toFixed(2) : 0,
-        summary: x.summary || makeAspectSummary(x)
-      })).sort((a,b)=> b.count - a.count);
+      // Parse aspects array to aspect_stats array (using frontend-compatible fields & examples!)
+      const totalMentions = (llm.aspects || []).reduce((acc, x) => acc + ((x.positive_count || 0) + (x.negative_count || 0)), 0) || 1;
+      const aspect_stats = (llm.aspects || []).map(a => {
+        const positive = a.positive_count || 0;
+        const negative = a.negative_count || 0;
+        const count = positive + negative;
+        
+        return {
+          aspect: a.name,
+          count,
+          ratio: +(100 * count / totalMentions).toFixed(2),
+          positive,
+          negative,
+          pos_ratio: count ? +(100 * positive / count).toFixed(2) : 0,
+          neg_ratio: count ? +(100 * negative / count).toFixed(2) : 0,
+          examplesPos: a.positive_examples || [],
+          examplesNeg: a.negative_examples || [],
+          summary: a.summary_tr || ''
+        };
+      }).sort((a, b) => b.count - a.count);
 
-      const issues = aspect_stats.filter(a => a.negative > a.positive).slice(0,5)
-        .map(a => ({ aspect: a.aspect, ratio: a.ratio, example: a.examplesNeg?.[0] || null }));
-      const praises = aspect_stats.filter(a => a.positive >= a.negative).slice(0,5)
-        .map(a => ({ aspect: a.aspect, ratio: a.ratio, example: a.examplesPos?.[0] || null }));
+      // Map key_insights to highlights model (praise / issue)
+      const praises = (llm.highlights?.praises || []).map(p => ({
+        name: p.name || 'Övgü',
+        reason: p.reason || String(p)
+      }));
+      const issues = (llm.highlights?.issues || []).map(i => ({
+        name: i.name || 'Sorun',
+        reason: i.reason || String(i)
+      }));
 
       const finalResult = {
         query,
@@ -203,14 +219,20 @@ export async function analyzeQuery({ query, maxItems = 200, useLLM = true }) {
         analyzed_reviews: reviews.length,
         aspect_stats,
         per_platform_summary: llm.per_platform_summary || {},
-        highlights: llm.highlights || { issues, praises },
-        summary: llm.summary || (`"${query}" için ${reviews.length} yorumdan özet üretildi.`)
+        highlights: { issues, praises },
+        summary: llm.summary_tr || llm.product_summary || (`"${query}" için özet üretildi.`),
+        
+        // Expose new rich metrics for API clients
+        overall_sentiment: llm.overall_sentiment || {},
+        key_insights: llm.key_insights || {},
+        data_quality: llm.data_quality || {}
       };
 
       try {
         await prisma.productAnalysis.create({
           data: {
             query,
+            productTitle: finalResult.productTitle,
             totalReviews: finalResult.total_reviews,
             analyzedReviews: finalResult.analyzed_reviews,
             summary: finalResult.summary,
@@ -342,21 +364,37 @@ export async function analyzeProvidedReviews({ query, reviews = [], useLLM = tru
         query,
         reviews,
         apiKey: process.env.GOOGLE_API_KEY,
-        model: process.env.GEMINI_MODEL || 'gemini-1.5-flash'
+        model: process.env.GEMINI_MODEL || 'gemini-2.5-pro'
       });
 
-      const totalMentions = llm.aspect_stats.reduce((acc, x) => acc + x.count, 0) || 1;
-      const aspect_stats = llm.aspect_stats.map(x => ({
-        ...x,
-        ratio: +(100 * x.count / totalMentions).toFixed(2),
-        pos_ratio: x.count ? +(100 * x.positive / x.count).toFixed(2) : 0,
-        neg_ratio: x.count ? +(100 * x.negative / x.count).toFixed(2) : 0
-      })).sort((a,b)=> b.count - a.count);
+      const totalMentions = (llm.aspects || []).reduce((acc, x) => acc + ((x.positive_count || 0) + (x.negative_count || 0)), 0) || 1;
+      const aspect_stats = (llm.aspects || []).map(a => {
+        const positive = a.positive_count || 0;
+        const negative = a.negative_count || 0;
+        const count = positive + negative;
+        
+        return {
+          aspect: a.name,
+          count,
+          ratio: +(100 * count / totalMentions).toFixed(2),
+          positive,
+          negative,
+          pos_ratio: count ? +(100 * positive / count).toFixed(2) : 0,
+          neg_ratio: count ? +(100 * negative / count).toFixed(2) : 0,
+          examplesPos: a.positive_examples || [],
+          examplesNeg: a.negative_examples || [],
+          summary: a.summary_tr || ''
+        };
+      }).sort((a, b) => b.count - a.count);
 
-      const issues = aspect_stats.filter(a => a.negative > a.positive).slice(0,5)
-        .map(a => ({ aspect: a.aspect, ratio: a.ratio, example: a.examplesNeg?.[0] || null }));
-      const praises = aspect_stats.filter(a => a.positive >= a.negative).slice(0,5)
-        .map(a => ({ aspect: a.aspect, ratio: a.ratio, example: a.examplesPos?.[0] || null }));
+      const praises = (llm.highlights?.praises || []).map(p => ({
+        name: p.name || 'Övgü',
+        reason: p.reason || String(p)
+      }));
+      const issues = (llm.highlights?.issues || []).map(i => ({
+        name: i.name || 'Sorun',
+        reason: i.reason || String(i)
+      }));
 
       return {
         query,
@@ -364,8 +402,14 @@ export async function analyzeProvidedReviews({ query, reviews = [], useLLM = tru
         total_reviews: reviews.length,
         analyzed_reviews: reviews.length,
         aspect_stats,
-        highlights: llm.highlights || { issues, praises },
-        summary: llm.summary || (`"${query}" için ${reviews.length} yorumdan özet üretildi.`)
+        per_platform_summary: llm.per_platform_summary || {},
+        highlights: { issues, praises },
+        summary: llm.summary_tr || llm.product_summary || (`"${query}" için özet üretildi.`),
+        
+        // Expose new rich metrics for API clients
+        overall_sentiment: llm.overall_sentiment || {},
+        key_insights: llm.key_insights || {},
+        data_quality: llm.data_quality || {}
       };
     } catch (e) {
       throw new Error('LLM analizi başarısız: ' + (e?.message || e));

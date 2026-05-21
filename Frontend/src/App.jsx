@@ -5,7 +5,7 @@ import { LoadingOutlined, CheckCircleOutlined, InfoCircleOutlined, ThunderboltOu
 import Home from './pages/Home.jsx';
 import Results from './pages/Results.jsx';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`;
 
 // --- Context & State Management ---
 export const AnalysisContext = createContext();
@@ -57,7 +57,7 @@ const AnalysisProvider = ({ children }) => {
       const res = await fetch(`${API}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, max_items: 200, use_llm: true })
+        body: JSON.stringify({ query, max_items: 500, use_llm: true })
       });
       const data = await res.json();
       

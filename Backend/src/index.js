@@ -17,7 +17,7 @@ app.use(cors({ origin: CORS_ORIGIN === '*' ? true : CORS_ORIGIN }));
 app.use(bodyParser.json({ limit: '1mb' }));
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', llm: !!process.env.GOOGLE_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-1.5-flash', maxReviews: Number(process.env.GEMINI_MAX_REVIEWS || 120) });
+  res.json({ status: 'ok', llm: !!process.env.GOOGLE_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-2.5-pro', maxReviews: Number(process.env.GEMINI_MAX_REVIEWS || 500) });
 });
 
 app.post('/analyze', async (req, res) => {
@@ -92,6 +92,7 @@ app.get('/analyses/recent', async (req, res) => {
       select: {
         id: true,
         query: true,
+        productTitle: true,
         totalReviews: true,
         analyzedReviews: true,
         createdAt: true,
@@ -104,6 +105,7 @@ app.get('/analyses/recent', async (req, res) => {
     const formatted = recent.map(r => ({
       id: r.id,
       query: r.query,
+      productTitle: r.productTitle || r.query,
       analyzed_reviews: r.analyzedReviews,
       aspect_count: r.aspectStats.length,
       date: r.createdAt
@@ -130,7 +132,7 @@ app.get('/analyses/:id', async (req, res) => {
 
     const result = {
       query: existing.query,
-      productTitle: existing.query,
+      productTitle: existing.productTitle || existing.query,
       perPlatform: {},
       sources: ['database'],
       total_reviews: existing.totalReviews,
@@ -162,6 +164,6 @@ app.get('/analyses/:id', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend listening on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Backend listening on port ${PORT} (exposed to local network)`);
 });
