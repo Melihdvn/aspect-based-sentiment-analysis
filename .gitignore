@@ -1,0 +1,60 @@
+# Python
+*.pyc
+__pycache__/
+venv/
+env/
+.env
+.venv
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Project specific
+*.log
+*.tmp
+*.cache
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Build
+dist/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets
+secrets.json
+config.json
+*.pem
+*.key
+
+# Backup
+*.bak
+*.backup
